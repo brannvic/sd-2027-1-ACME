@@ -16,7 +16,10 @@ export class ConsultaService {
       });
       return {
         numeroGuia, estado: paquete.estado,
-        historial: movimientos.map(movimiento => ({ tipo: movimiento.tipo, registradoEn: movimiento.registradoEn })),
+        // Lo rechazado no se muestra al público; lo pendiente sí, marcado, para que el estado nunca sea ambiguo.
+        historial: movimientos.filter(movimiento => movimiento.confirmacion !== 'rechazada').map(movimiento => ({
+          tipo: movimiento.tipo, registradoEn: movimiento.registradoEn, confirmacion: movimiento.confirmacion,
+        })),
       };
     });
   }

@@ -10,6 +10,7 @@ const resultado = spawnSync(process.execPath, ['--test', '--test-concurrency=1',
     DB_NAME: process.env.TEST_DB_NAME ?? 'acme_test',
     DB_USER: process.env.TEST_DB_USER ?? 'acme',
     DB_PASSWORD: process.env.TEST_DB_PASSWORD ?? 'acme_desarrollo',
+    RABBITMQ_URL: process.env.TEST_RABBITMQ_URL ?? 'amqp://acme:acme_desarrollo@127.0.0.1:55672',
   },
 });
 if (resultado.error) console.error(resultado.error);

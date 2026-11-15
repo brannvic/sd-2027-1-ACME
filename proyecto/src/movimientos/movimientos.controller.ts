@@ -1,9 +1,12 @@
 import { Body, Controller, Param, Patch, Post, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
-import { AutenticacionGuard, Roles, UsuarioActual } from '../usuarios/autenticacion';
-import { Rol, UsuarioAutenticado } from '../usuarios/usuario.entity';
+import { AutenticacionGuard, Rol, Roles, UsuarioActual, UsuarioAutenticado } from '../autenticacion/autenticacion';
 import { CorregirDireccionDto, CrearEnvioDto, RegistrarCasoDto, RegistrarMovimientoDto } from './movimientos.dto';
 import { MovimientosService } from './movimientos.service';
+
+// 200 reenvío del mismo UUID · 201 registrado · 202 registrado pero pendiente de confirmar la sesión con Usuarios
+const codigoDeRespuesta = (resultado: { duplicado: boolean; movimiento: { confirmacion: string } }) =>
+  resultado.duplicado ? 200 : resultado.movimiento.confirmacion === 'pendiente' ? 202 : 201;
 
 @Controller('paquetes')
 @UseGuards(AutenticacionGuard)
@@ -31,7 +34,7 @@ export class MovimientosController {
   async registrarMovimiento(@Body() datos: RegistrarMovimientoDto, @UsuarioActual() usuario: UsuarioAutenticado,
     @Res({ passthrough: true }) respuesta: Response) {
     const resultado = await this.movimientos.registrarMovimiento(datos, usuario);
-    respuesta.status(resultado.duplicado ? 200 : 201);
+    respuesta.status(codigoDeRespuesta(resultado));
     return resultado;
   }
 
@@ -39,7 +42,7 @@ export class MovimientosController {
   async corregirDireccion(@Param('numero_guia') numeroGuia: string, @Body() datos: CorregirDireccionDto,
     @UsuarioActual() usuario: UsuarioAutenticado, @Res({ passthrough: true }) respuesta: Response) {
     const resultado = await this.movimientos.corregirDireccion(numeroGuia, datos, usuario);
-    respuesta.status(resultado.duplicado ? 200 : 201);
+    respuesta.status(codigoDeRespuesta(resultado));
     return resultado;
   }
 }

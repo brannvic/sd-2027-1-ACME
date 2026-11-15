@@ -1,7 +1,6 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { AutenticacionGuard, Roles } from '../usuarios/autenticacion';
-import { Rol } from '../usuarios/usuario.entity';
+import { AutenticacionGuard, Rol, Roles } from '../autenticacion/autenticacion';
 import { ProgramacionReintento } from './reintento.entity';
 
 @Controller('reintentos')
