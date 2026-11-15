@@ -1,6 +1,5 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
-import { AutenticacionGuard, Roles, UsuarioActual } from '../usuarios/autenticacion';
-import { Rol, UsuarioAutenticado } from '../usuarios/usuario.entity';
+import { AutenticacionGuard, Rol, Roles, UsuarioActual, UsuarioAutenticado } from '../autenticacion/autenticacion';
 import { ConsultaService } from './consulta.service';
 
 @Controller('tracking')

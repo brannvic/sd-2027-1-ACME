@@ -6,7 +6,7 @@
 
    ```sh
    docker compose up --build -d --wait
-   docker compose exec app npm run seed:prod
+   docker compose exec usuarios npm run seed:prod
    ```
 
 2. En Postman, pulsa **Import** e importa estos archivos:
@@ -19,17 +19,17 @@
 
 El entorno apunta a `http://localhost:8080`. Si cambiaste el puerto o la contraseña de las cuentas de demo, ajusta `baseUrl` y `contrasenaDemo`. `baseUrl` no debe incluir `/api/v1` ni terminar en `/`.
 
-## Colección principal. 48 peticiones
+## Colección principal. 49 peticiones
 
 | Carpeta | Qué demuestra |
 |---|---|
-| 1 - Arriba y respondiendo | Salud de app y PostgreSQL; login de los cuatro roles |
+| 1 - Arriba y respondiendo | Salud del monolito, de Usuarios y su quórum; login de los cuatro roles |
 | 2 - Crear envío y corregir dirección | Creación por administrador, consulta pública y privada, corrección antes de ruta |
 | 3 - Del almacén a la entrega | Almacén → centro → ruta → entregado; receptor obligatorio y ventana de dirección |
 | 4 - Idempotencia y estado terminal | Reenvío del UUID sin duplicar; conflicto con otro receptor; entrega terminal |
 | 5 - Entrega fallida y reintento automático | Otra guía, primer fallo, programación de siguiente visita y rechazo de una salida el mismo día |
 | 6 - Privacidad y errores esperados | Proyección pública, permisos y errores 400, 401, 403, 404 y 409 |
-| 7 - Cerrar sesiones y comprobar revocación | Logout de los cuatro roles y rechazo del token revocado |
+| 7 - Cerrar sesiones y comprobar revocación | Logout de los cuatro roles y rechazo del token revocado (llega por evento: la petición espera 1.5 s) |
 
 Los scripts guardan tokens e identificadores en el entorno. Las peticiones protegidas ya tienen configurado el rol correspondiente en **Authorization**. No necesitas copiar tokens a mano.
 

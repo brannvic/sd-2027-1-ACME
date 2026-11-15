@@ -5,10 +5,10 @@ import { ConsultaModule } from './consulta/consulta.module';
 import { MovimientosModule } from './movimientos/movimientos.module';
 import { ReintentosModule } from './reintentos/reintentos.module';
 import { SaludController } from './salud.controller';
-import { UsuariosModule } from './usuarios/usuarios.module';
+import { AutenticacionModule } from './autenticacion/autenticacion.module';
 
 @Module({
-  imports: [TypeOrmModule.forRoot({ ...opcionesBaseDatos, retryAttempts: 3 }), UsuariosModule, MovimientosModule, ReintentosModule, ConsultaModule],
+  imports: [TypeOrmModule.forRoot({ ...opcionesBaseDatos, retryAttempts: 3 }), AutenticacionModule, MovimientosModule, ReintentosModule, ConsultaModule],
   controllers: [SaludController],
 })
 export class AppModule {}

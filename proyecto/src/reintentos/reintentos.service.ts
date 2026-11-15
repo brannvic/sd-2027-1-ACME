@@ -40,6 +40,15 @@ export class ReintentosService {
     return intento;
   }
 
+  /** Compensación: un "entregado" rechazado deja el intento abierto otra vez, como si no hubiera llegado resultado. */
+  async deshacerResultadoEntrega(transaccion: EntityManager, paquete: Paquete, movimiento: Movimiento) {
+    const intentos = transaccion.getRepository(IntentoEntrega);
+    const intento = await intentos.findOneBy({ numeroGuia: paquete.numeroGuia, resultadoMovimientoId: movimiento.id });
+    if (!intento) return;
+    intento.resultadoMovimientoId = null;
+    await intentos.save(intento);
+  }
+
   async programarSiguienteIntento(transaccion: EntityManager, paquete: Paquete, intento: IntentoEntrega, movimiento: Movimiento) {
     if (intento.numero === 3) {
       paquete.estado = EstadoPaquete.EN_SUCURSAL;

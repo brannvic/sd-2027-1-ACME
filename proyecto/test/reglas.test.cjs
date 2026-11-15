@@ -1,15 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generarHashContrasena, verificarContrasena } = require('../dist/usuarios/contrasenas');
 const { obtenerFechaYHoraLocal, obtenerFechaSiguiente, estaDentroDeFranja } = require('../dist/reintentos/horarios');
-
-test('las contraseñas usan sal distinta y rechazan una clave incorrecta', () => {
-  const hash = generarHashContrasena('AcmeDemo2026!');
-  assert.notEqual(hash, generarHashContrasena('AcmeDemo2026!'));
-  assert.equal(verificarContrasena('AcmeDemo2026!', hash), true);
-  assert.equal(verificarContrasena('incorrecta', hash), false);
-  assert.equal(verificarContrasena('incorrecta', 'invalido'), false);
-});
 
 test('la fecha del intento usa Ciudad de México, incluso cerca de medianoche UTC', () => {
   assert.deepEqual(obtenerFechaYHoraLocal(new Date('2026-10-17T03:30:00Z')), { fecha: '2026-10-16', minutos: 1290 });

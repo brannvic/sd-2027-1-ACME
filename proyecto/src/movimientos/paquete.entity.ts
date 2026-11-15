@@ -6,9 +6,12 @@ export enum EstadoPaquete {
   EN_CENTRO = 'en_centro_distribucion',
   EN_RUTA = 'en_ruta',
   INTENTO_FALLIDO = 'intento_fallido',
+  ENTREGA_POR_CONFIRMAR = 'entrega_por_confirmar', // no terminal: falta verificar la sesión con Usuarios
   ENTREGADO = 'entregado',
   EN_SUCURSAL = 'en_sucursal',
 }
+
+export type Confirmacion = 'confirmada' | 'pendiente' | 'rechazada';
 
 export enum TipoMovimiento {
   ENVIO_CREADO = 'envio_creado',
@@ -49,4 +52,7 @@ export class Movimiento {
   @Column({ type: 'text', nullable: true }) motivo!: string | null;
   @Column({ type: 'text', nullable: true }) receptor!: string | null;
   @Column({ type: 'text', nullable: true }) direccionNueva!: string | null;
+  @Column({ type: 'uuid', nullable: true }) sesionId!: string | null;
+  @Column({ type: 'varchar', default: 'confirmada' }) confirmacion!: Confirmacion;
+  @Column({ type: 'text', nullable: true }) notaConfirmacion!: string | null;
 }
