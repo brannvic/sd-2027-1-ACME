@@ -90,6 +90,22 @@ En sucursal se registra el contacto. Si el cliente no respondió, el administrad
 - El paquete se bloquea mientras se modifica. Historial, estado, intento y programación se confirman juntos o se revierten juntos. Las consultas leen una versión consistente y ordenan el historial por secuencia de inserción.
 - La hora proviene del servidor. Los tokens duran 12 horas; cada petición protegida comprueba su sesión en PostgreSQL. Si la base falla, no se puede autorizar ni confirmar operaciones. No se promete funcionamiento offline en esta etapa.
 
+## Pruebas
+
+Las pruebas corren fuera de Docker, así que aquí sí se necesita Node.js 22 o superior. Usan su propia base PostgreSQL (`docker-compose.test.yml`, en `127.0.0.1:55432`, base `acme_test`), que no toca el volumen `acme_datos` del monolito. No hace falta `.env`: la prueba de integración define su propio secreto JWT y su propio reloj.
+
+```sh
+npm ci
+docker compose -f docker-compose.test.yml up -d --wait
+npm test                    # reglas puras: contraseñas, fechas en Ciudad de México y franjas
+npm run test:integration    # API real contra PostgreSQL: permisos, idempotencia, concurrencia, rollback, tres días de reintentos y 503 sin base
+docker compose -f docker-compose.test.yml down
+```
+
+`test:integration` levanta su propia instancia de la aplicación en un puerto libre; no necesita que el monolito de `docker compose up` esté corriendo. Si la base de pruebas está en otro lugar, se puede cambiar con `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_NAME`, `TEST_DB_USER` y `TEST_DB_PASSWORD`. Por seguridad, el nombre de la base debe empezar con `acme_test`.
+
+Para recorrer la API a mano, importen las colecciones de [`postman/`](postman/README.md) con el monolito levantado y los usuarios de demostración creados.
+
 ## Cómo leer el código
 
 Para comprender cómo hicimos el monolito, se recomienda empezar por `src/main.ts`, de ahí se sigue a un controlador y luego al servicio correspondiente:
