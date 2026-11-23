@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
-import { TipoMovimiento } from './paquete.entity';
+import { TipoMovimiento } from './tipos';
 
 const recortarTexto = () => Transform(({ value }) => typeof value === 'string' ? value.trim() : value);
 
