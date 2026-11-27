@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "0cc889fb-afe4-49b8-811a-d24c4a603064",
     "name": "ACME - 02 Reintentos y sucursal - Manual",
-    "description": "No ejecutar toda esta colección de una vez. Usa el mismo entorno ACME - Local que el recorrido principal. Mantén su guiaReintentos (o pega una guía existente con primer intento fallido). Ejecuta la carpeta 1; el segundo día, la 2; el tercer día, la 3. Solo después de ver en_sucursal, la 4. Las franjas del servidor son mañana 09–13 y tarde 14–18, hora de Ciudad de México. Las fechas no pueden adelantarse desde Postman. Este flujo comparte tokens con la colección principal: úsalo después de terminar aquella.",
+    "description": "Seguimiento por guía a través del gateway. Ejecuta cada bloque dentro de su franja y espera la proyección del último resultado.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -156,7 +156,7 @@
                 }
               ]
             },
-            "url": "{{baseUrl}}/api/v1/reintentos",
+            "url": "{{baseUrl}}/api/v1/movimientos/{{guiaReintentos}}/direccion",
             "description": "Resultado esperado: HTTP 200."
           },
           "event": [
@@ -165,8 +165,16 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
-                  ""
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const plan = pm.response.json().plan;",
+                  "pm.test('Plan vigente', () => {",
+                  "  pm.expect(plan).to.be.an('object');",
+                  "  pm.expect(plan.franja).to.be.oneOf(['manana', 'tarde']);",
+                  "});",
+                  "if (plan) {",
+                  "  pm.environment.set('fechaReintento', plan.fecha);",
+                  "  pm.environment.set('franjaReintento', plan.franja);",
+                  "}"
                 ]
               }
             }
@@ -217,7 +225,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('HTTP 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
                   ""
                 ]
               }
@@ -263,7 +271,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('HTTP 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
                   ""
                 ]
               }
@@ -286,7 +294,7 @@
                 }
               ]
             },
-            "url": "{{baseUrl}}/api/v1/reintentos",
+            "url": "{{baseUrl}}/api/v1/movimientos/{{guiaReintentos}}/direccion",
             "description": "Resultado esperado: HTTP 200."
           },
           "event": [
@@ -295,8 +303,16 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
-                  ""
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const plan = pm.response.json().plan;",
+                  "pm.test('Plan vigente', () => {",
+                  "  pm.expect(plan).to.be.an('object');",
+                  "  pm.expect(plan.franja).to.be.oneOf(['manana', 'tarde']);",
+                  "});",
+                  "if (plan) {",
+                  "  pm.environment.set('fechaReintento', plan.fecha);",
+                  "  pm.environment.set('franjaReintento', plan.franja);",
+                  "}"
                 ]
               }
             }
@@ -347,7 +363,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('HTTP 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
                   ""
                 ]
               }
@@ -393,7 +409,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('HTTP 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
                   ""
                 ]
               }
@@ -441,7 +457,7 @@
                 }
               ]
             },
-            "url": "{{baseUrl}}/api/v1/reintentos",
+            "url": "{{baseUrl}}/api/v1/movimientos/{{guiaReintentos}}/direccion",
             "description": "Resultado esperado: HTTP 200."
           },
           "event": [
@@ -450,8 +466,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
-                  "pm.test('Sin reintento pendiente de la guía', function () { pm.expect(pm.response.json().filter(p => p.numeroGuia === pm.environment.get('guiaReintentos'))).to.have.lengthOf(0); });"
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Sin reintento pendiente', () => pm.expect(pm.response.json().plan).to.eql(null));"
                 ]
               }
             }
@@ -467,7 +483,7 @@
         {
           "name": "Registrar contacto sin respuesta",
           "request": {
-            "method": "PATCH",
+            "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
@@ -484,7 +500,7 @@
                 }
               ]
             },
-            "url": "{{baseUrl}}/api/v1/paquetes/{{guiaReintentos}}/caso",
+            "url": "{{baseUrl}}/api/v1/movimientos/{{guiaReintentos}}/caso",
             "description": "Resultado esperado: HTTP 200.",
             "body": {
               "mode": "raw",
@@ -513,7 +529,7 @@
         {
           "name": "Registrar decisión del proveedor y cerrar el caso",
           "request": {
-            "method": "PATCH",
+            "method": "POST",
             "header": [
               {
                 "key": "Content-Type",
@@ -530,7 +546,7 @@
                 }
               ]
             },
-            "url": "{{baseUrl}}/api/v1/paquetes/{{guiaReintentos}}/caso",
+            "url": "{{baseUrl}}/api/v1/movimientos/{{guiaReintentos}}/caso",
             "description": "Resultado esperado: HTTP 200.",
             "body": {
               "mode": "raw",

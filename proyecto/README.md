@@ -1,129 +1,131 @@
-# ACME - Rastreo y entrega de paquetes
+# ACME Paquetería · sistema distribuido
 
-Aquí se presenta la primera versión del sistema descrito en [el PRD](docs/PRD.md). Se trata de una aplicación NodeJS + NestJS que contiene Usuarios, Movimientos, Reintentos y Consulta; todos trabajan sobre PostgreSQL.  
-Equipo: **ACME** - Integrantes: **@onofrela, @Ur182, @grecia-i y @brannvic**.
+Rastreo y entrega de paquetes con registro de movimientos sin conexión, reintentos de entrega y consulta por guía. El equipo ACME está integrado por @onofrela, @Ur182, @grecia-i y @brannvic. [PRD](docs/PRD.md)
 
-## Levantar con Docker
-
-Para levantar el monolito, se necesita Docker Desktop encendido con contenedores Linux y Docker Compose. La imagen compila TypeScript; no se necesita instalar Node para levantar la aplicación.
+Desde la carpeta que contiene `package.json`, con Docker Desktop en modo Linux y Docker Compose v2:
 
 ```sh
-docker compose up --build -d --wait
+docker compose up -d --build
 docker compose ps
-docker compose exec app npm run seed:prod
-docker compose exec app npm run demo
 ```
 
-La API escucha en `http://localhost:8080`. Para comprobar, se puede mandar una petición `GET /health`. Debe devolver  `{"estado":"UP","baseDatos":"UP"}` cuando PostgreSQL responde. El primer arranque descarga imágenes y dependencias. Si algo falla, se puede revisar con el comando `docker compose logs app db` para ver en qué falló.
+Abre [http://localhost:8080](http://localhost:8080). Si el puerto está ocupado, define `PORT` antes de levantar. El primer login espera a que Patroni elija el líder, arranque al menos una réplica síncrona y se creen las cuentas de demostración.
 
-Compose usa valores locales de desarrollo. Para este caso, se puede copiar `.env.example` a `.env` y cambiar puerto, contraseña de base, secreto JWT y contraseña de demostración antes del primer arranque. `seed` crea las cuentas que falten y conserva las existentes; no cambia sus contraseñas al ejecutarse otra vez.
+## Datos de ejemplo para probar la web
 
-| Rol | Correo | Contraseña inicial por defecto |
-|---|---|---|
-| Administrador | `administrador@acme.test` | `AcmeDemo2026!` |
-| Cliente | `cliente@acme.test` | `AcmeDemo2026!` |
-| Almacenista | `almacenista@acme.test` | `AcmeDemo2026!` |
-| Repartidor | `repartidor@acme.test` | `AcmeDemo2026!` |
+Las cuentas de demostración se crean al arrancar. Todas usan la contraseña local `AcmeDemo2026!` o el valor configurado en `DEMO_PASSWORD` cuando se crean.
 
-Para detener conservando los datos:
-
-```sh
-docker compose down
-```
-
-El volumen `acme_datos` conserva el PostgreSQL. No se recomienda utilizar `down -v` si quieres preservar los paquetes.
-
-## Recorrido y endpoints
-
-`npm run demo` inicia sesión con los cuatro roles, crea una guía nueva, corrige la dirección, registra almacén, centro y salida a ruta, entrega con receptor y consulta el resultado. Verifica reenvíos sin duplicados, rechazo de una dirección fuera de ventana y revocación al cerrar sesión. Sale con código distinto de cero si algo falla. Se puede repetir: genera una guía distinta cada vez.
-
-Todos los endpoints de negocio empiezan con `/api/v1`. Envía JSON y, para las rutas protegidas, `Authorization: Bearer <token>`.
-
-| Método y ruta | Operación y acceso |
+| Correo | Qué puedes probar |
 |---|---|
-| `POST /auth/login` | `{correo, contrasena}` → `{token, venceEn, usuario}` |
-| `POST /auth/logout` | Revoca la sesión del token actual |
-| `POST /paquetes` | Administrador: `{numeroGuia, clienteId, destinatario, direccion}` |
-| `POST /movimientos/escanear` | Almacenista o repartidor: `{id, numeroGuia, tipo, ubicacion?, motivo?, receptor?}` |
-| `GET /tracking/:numero_guia` | Público: guía, estado y línea de tiempo sin datos personales |
-| `GET /tracking/:numero_guia/detalle` | Cliente titular: datos completos e historial |
-| `PATCH /movimientos/:numero_guia/direccion` | Cliente titular: `{id, direccion}` |
-| `GET /reintentos` | Repartidor o administrador: programación pendiente |
-| `PATCH /paquetes/:numero_guia/caso` | Administrador: `{clienteRespondio, notasContacto, decisionProveedor?}` |
+| `cliente@acme.test` | Ver el detalle privado de las guías de ejemplo y corregir la dirección antes de la salida a ruta. |
+| `repartidor@acme.test` | Abrir **Reparto**, elegir un PIN local de cuatro dígitos y registrar movimientos desde la PWA. |
+| `proveedor@acme.test` | Crear un envío mediante la CLI. |
+| `almacenista@acme.test` | Registrar el paso por almacén y centro de distribución mediante la CLI. |
+| `administrador@acme.test` | Registrar contacto, decisión del proveedor o recuperación mediante la CLI. |
 
-La creación del envío representa una orden ya confirmada por el proveedor. Se obtiene el `clienteId` de la respuesta de login del cliente. La guía debe contener entre 6 y 40 caracteres: letras mayúsculas, números y guiones. `id` es un UUID generado por quien llama y conservado al reintentar.
+En la instancia de demostración actual, pega una de estas guías en [Rastreo de paquetes](http://localhost:8080) y pulsa **Rastrear**. Para ver la dirección y el historial privado, entra como cliente y pulsa **Ver detalle**.
 
-Ejemplo de login:
-
-```sh
-curl -i http://localhost:8080/api/v1/auth/login -H "Content-Type: application/json" --data '{"correo":"cliente@acme.test","contrasena":"AcmeDemo2026!"}'
-```
-
-Para Windows PowerShell se debe usar `curl.exe`, o ejecutar la demostración con Docker para evitar diferencias de comillas entre shells.
-
-### Flujo permitido
-
-```text
-creado → en_almacen → en_centro_distribucion → en_ruta → entregado
-                                                ↓
-                                          intento_fallido
-                                                ↓
-                                   siguiente día, distinta franja
-                                                ↓
-                                             en_ruta
-                                                ↓
-                              tercer intento fallido → en_sucursal
-```
-
-El almacenista registra `ingreso_almacen` e `ingreso_centro_distribucion`, con `ubicacion` obligatoria. Puede registrar varias paradas dentro de la misma categoría. El repartidor registra `salida_ruta`, `intento_fallido` con `motivo`, y `entregado` con `receptor`.
-
-La primera salida puede registrarse a cualquier hora: se clasifica como mañana antes de las 14:00 y tarde a partir de las 14:00. Los **reintentos** sí deben salir en su franja: mañana `[09:00, 13:00)` o tarde `[14:00, 18:00)`, hora de Ciudad de México. Se admite uno por día. Si no se realiza el día programado, sigue pendiente y puede salir otro día posterior en la misma franja. No se consumen intentos por el simple paso del tiempo. Tras tres intentos fallidos en días distintos, el sistema registra automáticamente el paso a sucursal.
-
-La programación se crea junto con el fallo y se consume junto con la siguiente salida. No hay un proceso que simule visitas. La dirección queda bloqueada desde la primera salida a ruta, incluso después de un intento fallido. Se eligió esta lectura estricta del PRD: por ello no existen reintentos previos a una corrección aceptada.
-
-En sucursal se registra el contacto. Si el cliente no respondió, el administrador puede registrar `decisionProveedor: "regresar"` o `"no_regresar"` y cerrar el caso, en la misma petición o en una posterior. Ambas requieren notas y falta de respuesta. El estado permanece `en_sucursal`: el sistema no ejecuta devoluciones. Si el cliente respondió, queda registrado el contacto y el caso continúa abierto.
-
-### Respuestas y consistencia
-
-- Alta de envío o nuevo movimiento/corrección: `201`; reenvío idéntico de UUID: `200`. La respuesta de movimiento es `{movimiento, duplicado}`. Reutilizar el UUID con otros datos devuelve `409`.
-- `400`: datos inválidos; `401`: token ausente, inválido, vencido o revocado; `403`: rol o titular incorrecto; `404`: guía inexistente; `409`: transición incompatible o conflicto concurrente; `503`: operación de base no disponible.
-- El paquete se bloquea mientras se modifica. Historial, estado, intento y programación se confirman juntos o se revierten juntos. Las consultas leen una versión consistente y ordenan el historial por secuencia de inserción.
-- La hora proviene del servidor. Los tokens duran 12 horas; cada petición protegida comprueba su sesión en PostgreSQL. Si la base falla, no se puede autorizar ni confirmar operaciones. No se promete funcionamiento offline en esta etapa.
-
-## Pruebas
-
-Las pruebas corren fuera de Docker, así que aquí sí se necesita Node.js 22 o superior. Usan su propia base PostgreSQL (`docker-compose.test.yml`, en `127.0.0.1:55432`, base `acme_test`), que no toca el volumen `acme_datos` del monolito. No hace falta `.env`: la prueba de integración define su propio secreto JWT y su propio reloj.
-
-```sh
-npm ci
-docker compose -f docker-compose.test.yml up -d --wait
-npm test                    # reglas puras: contraseñas, fechas en Ciudad de México y franjas
-npm run test:integration    # API real contra PostgreSQL: permisos, idempotencia, concurrencia, rollback, tres días de reintentos y 503 sin base
-docker compose -f docker-compose.test.yml down
-```
-
-`test:integration` levanta su propia instancia de la aplicación en un puerto libre; no necesita que el monolito de `docker compose up` esté corriendo. Si la base de pruebas está en otro lugar, se puede cambiar con `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_NAME`, `TEST_DB_USER` y `TEST_DB_PASSWORD`. Por seguridad, el nombre de la base debe empezar con `acme_test`.
-
-Para recorrer la API a mano, importen las colecciones de [`postman/`](postman/README.md) con el monolito levantado y los usuarios de demostración creados.
-
-## Cómo leer el código
-
-Para comprender cómo hicimos el monolito, se recomienda empezar por `src/main.ts`, de ahí se sigue a un controlador y luego al servicio correspondiente:
-
-- **Usuarios:** login, hashes de contraseña con scrypt, token firmado y sesiones revocables.
-- **Movimientos:** creación, transiciones, dirección y cierre de caso. `registrarMovimiento` muestra el recorrido completo de escritura.
-- **Reintentos:** registra intentos y programa la siguiente visita dentro de la transacción recibida de Movimientos.
-- **Consulta:** dos proyecciones explícitas: pública y privada del titular.
-
-TypeORM accede directamente a las entidades. No hay repositorios genéricos, buses de eventos ni llamadas HTTP entre módulos. El esquema está en una migración; `synchronize` está desactivado. Docker aplica las migraciones antes de iniciar el servidor.
-
-## Arquitectura para la defensa
-
-| Pregunta | Respuesta en `01-monolito` |
+| Guía | Qué muestra |
 |---|---|
-| ¿Dónde está la entrada/gateway? | El servidor HTTP de NestJS recibe todas las rutas en el puerto 8080. No hay gateway separado. |
-| ¿Dónde está el directorio? | DNS interno de Compose: la aplicación resuelve `db` por nombre. |
-| ¿Cómo se balancea? | Hay una instancia de aplicación; todavía no hay balanceador. |
-| ¿Dónde están los datos? | Una base PostgreSQL con volumen persistente y transacciones locales. |
-| ¿Cómo se comunican los módulos? | Llamadas de funciones dentro del mismo proceso. |
-| ¿Qué pasa si algo falla? | Un error revierte la transacción; los UUID hacen seguro reenviar una operación cuya respuesta se perdió. Si cae app o db, el monolito deja de atender hasta recuperarse. |
+| `ACME-DEMO-RUTA` | Paquete en centro de distribución. Puedes corregir la dirección como cliente y después iniciar la ruta como repartidor. |
+| `PWA-0CC975B9-6E0` | Paquete entregado desde la PWA. El detalle muestra quién lo recibió. |
+| `ACME-AF1998D8` | Paquete con intento fallido. El detalle muestra el próximo intento. |
+
+### Crear una guía en una instalación nueva
+
+Las guías de la tabla se guardan en los volúmenes de la instancia. Para preparar un paquete listo para reparto con volúmenes nuevos, ejecuta esto en PowerShell desde **proyecto**, con Node.js 24 y el sistema levantado. Si la guía ya existe, elige otro número. Si configuraste otro puerto, ajusta `ACME_URL` al inicio del bloque.
+
+```powershell
+$guia = 'ACME-DEMO-RUTA'
+$env:ACME_URL = 'http://localhost:8080'
+$env:ACME_CONTRASENA = 'AcmeDemo2026!'
+$env:ACME_CORREO = 'cliente@acme.test'
+$cliente = (node distribuido/acme.mjs login | ConvertFrom-Json).usuario.id
+$env:ACME_CORREO = 'proveedor@acme.test'
+node distribuido/acme.mjs envio $guia $cliente 'Cliente de prueba' 'Calle Ejemplo 42, Ciudad de México'
+$env:ACME_CORREO = 'almacenista@acme.test'
+node distribuido/acme.mjs almacen $guia 'Almacén Demo'
+node distribuido/acme.mjs centro $guia 'Centro Demo'
+```
+
+Busca la guía unos segundos después para dar tiempo a que se actualice el rastreo. Para probar la entrega desde la web, entra como repartidor, consulta la dirección y guarda **Salida a ruta**. Luego guarda **Entregado** e indica quién recibió el paquete.
+
+## Uso y verificación
+
+- La página principal consulta por guía. El cliente autenticado puede ver el detalle y corregir la dirección antes de la primera salida a ruta.
+- El proveedor confirma el envío desde la CLI. El almacenista usa la misma CLI para registrar el ingreso a almacén y luego a centro. El administrador registra contacto, decisión y recuperación de entrega errónea.
+- El repartidor abre la vista Reparto, configura el PIN, consulta la dirección vigente y registra la salida a ruta y el resultado. Se puede instalar la PWA en un navegador compatible tras abrirla una vez con conexión. Usa `localhost` o HTTPS para disponer de service workers.
+- Si usas otro puerto, define `ACME_URL` antes de la CLI y de las pruebas. La CLI y las pruebas requieren Node.js 24.
+
+```sh
+node distribuido/acme.mjs ayuda
+npm run test:integration
+npm run test:integration -- --fallas
+```
+
+La verificación normal crea guías y un cliente desechables. `--fallas` detiene y restaura contenedores de este Compose para comprobar promoción del líder, pérdida de mayoría, aislamiento del shard, recuperación del outbox y respaldo en Redis. Ejecútalo en una instancia de demostración. Para apagar conservando los datos, usa `docker compose down`.
+
+Para enviar peticiones al gateway de forma interactiva, importa las [colecciones de Postman](postman/README.md).
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+  C[SPA · PWA · CLI] --> N[Nginx]
+  N --> G[Gateway x3]
+  G -->|DNS y balanceo| Q[Consulta x3]
+  G --> U[Usuarios]
+  G --> M[Movimientos]
+  G -->|Respaldo| R[(Redis)]
+  U --> P[(PostgreSQL x3 · Patroni / etcd)]
+  M --> S[(PostgreSQL x4 · shards)]
+  M -. Verificación síncrona .-> U
+  U -->|Outbox| B[RabbitMQ]
+  M -->|Outbox| B
+  B --> L[Proyección de Consulta]
+  B --> T[Reintentos]
+  B --> V[Revocaciones]
+  L --> D[(MongoDB · Consulta)]
+  L --> R
+  V --> R
+  T --> I[(MongoDB · Reintentos)]
+  T -->|Comando idempotente| M
+  Q --> D
+  Q --> R
+```
+
+Nginx publica el único puerto y vuelve a resolver las réplicas del gateway mediante DNS de Compose. Cada gateway rota entre IP de Consulta y prueba otra réplica cuando una falla. El circuito mantiene las últimas 100 solicitudes por réplica, abre un minuto con al menos 50 fallas y prueba 5 % del tráfico al quedar semiabierto. Redis devuelve la vista disponible con un aviso de atraso. Las operaciones de detalle conservan la validación del token y del titular, también al usar el respaldo.
+
+Usuarios guarda cuentas y sesiones en tres PostgreSQL con replicación síncrona y Patroni en modo quórum. etcd, también de tres miembros, arbitra la elección del líder. El servicio consulta el líder, comprueba que tenga al menos una réplica síncrona y espera aplicación remota al confirmar escrituras. Login y registro devuelven 503 mientras falte mayoría. Los JWT de 12 horas se verifican localmente. Los eventos de logout y cambio de contraseña alimentan las listas locales y Redis. Movimientos también comprueba la sesión en Usuarios antes de una entrega o corrección. Si la respuesta no llega, guarda el evento pendiente y lo reconcilia posteriormente.
+
+Movimientos calcula SHA-256 sobre la guía inmutable y usa el primer byte módulo cuatro. Cada partición tiene su propio PostgreSQL y volumen. El UUID es idempotente dentro de la partición a la que pertenece la guía. Se publica el outbox con confirmaciones de RabbitMQ. Las colas durables tienen confirmación manual, consumidor activo único y cola de fallidos. La versión por guía permite ignorar reentregas. Consulta guarda en MongoDB y proyecta a Redis con versiones y reparación si el caché estuvo caído. Reintentos guarda su plan y el comando para Movimientos en la misma actualización atómica de MongoDB.
+
+## Decisiones de la sección 10 del PRD
+
+| Pregunta | Decisión |
+|---|---|
+| Ruteo y réplica | Movimientos calcula el shard. Cada shard tiene un nodo y conserva su volumen. Un shard caído deja pendientes las escrituras para sus guías. |
+| Regiones de Usuarios | Tres regiones simuladas. Se requiere el líder y al menos una réplica síncrona. |
+| Franjas | Un intento por día de visita. Los reintentos alternan entre 09:00–13:00 y 14:00–18:00 en Ciudad de México. El tercer día con intento fallido escala a sucursal. |
+| PIN | Cuatro dígitos al abrir Reparto y cada 10 minutos de uso desbloqueado. |
+| Cronómetro | El ancla firmada por el servidor usa `performance.now()` durante la sesión de la página. Los escaneos previos conservan el dato ya calculado en IndexedDB. Tras reiniciar offline, los nuevos escaneos conservan una marca de hora no verificable y usan la hora de recepción para el orden operativo. |
+| Administración | La CLI registra el contacto y la decisión del proveedor. |
+| Entrega errónea | Una entrega a una revisión anterior se registra como errónea si la corrección precede a la entrega. El almacenista o administrador registra `recuperado` y el paquete vuelve al centro de distribución para salir de nuevo. |
+| Reloj sospechoso | Con más de dos minutos de diferencia, el movimiento conserva la marca en el historial de detalle para revisión operativa. |
+
+## Contrato de entrada
+
+| Ruta bajo `/api/v1` | Operación |
+|---|---|
+| `POST /auth/registro`, `/auth/login`, `/auth/logout`, `/auth/contrasena` | Registro, sesión y revocación |
+| `POST /movimientos/envios` | Alta por el proveedor con titular existente |
+| `POST /movimientos/escanear`, `/movimientos/sincronizar` | Escaneo único y lote con resultado por UUID |
+| `GET /movimientos/hora` | Ancla de tiempo firmada |
+| `GET /movimientos/:guia/direccion` | Dirección, revisión y plan vigentes para operación |
+| `POST /movimientos/:guia/direccion` | Corrección por el titular con UUID |
+| `POST /movimientos/:guia/caso`, `/movimientos/:guia/recuperar` | Escalamiento y recuperación |
+| `GET /tracking/:guia`, `/tracking/:guia/detalle` | Rastreo público y detalle privado |
+
+El Nginx, el broker, cada shard y cada base de lectura viven en una sola máquina. Docker Desktop y esos componentes sin réplicas conservan su dominio de falla local. Los volúmenes se conservan al volver a levantar esta configuración. Carga una guía nueva o usa el script de verificación para la demostración.
+
+El diseño aplica redes, volúmenes y Compose de S02–S05, elección y quórum de S06, entrada y balanceo de S07, saga y circuito de S08, outbox y mensajería idempotente de S09, relojes de S10 y persistencia políglota y caché de S11. El despliegue pedido usa Compose y conserva la arquitectura del PRD.
