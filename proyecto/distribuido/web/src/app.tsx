@@ -5,6 +5,7 @@ import {
   Pendiente, pendientes, quitar, Sesion, Vista,
 } from './datos';
 import './estilos.css';
+import { AnclaServidor, RelojOffline } from '../../../src/reloj-offline';
 
 const textos: Record<string, string> = {
   creado: 'Envío creado', envio_creado: 'Envío creado', en_almacen: 'En almacén', ingreso_almacen: 'Ingreso a almacén',
@@ -151,8 +152,15 @@ function Pin({ usuario, desbloquear }: { usuario: string; desbloquear: () => voi
   </form>;
 }
 
-type Ancla = { ancla: string; servidorMs: number; monotono: number };
-const anclas = new Map<string, Ancla>();
+const relojes = new Map<string, RelojOffline>();
+function relojDe(usuario: string) {
+  let reloj = relojes.get(usuario);
+  if (!reloj) {
+    reloj = new RelojOffline(usuario, localStorage);
+    relojes.set(usuario, reloj);
+  }
+  return reloj;
+}
 type Resultado = { id: string; status: number; mensaje?: string; movimiento?: { tipo: string; confirmacion: string } };
 function Reparto({ sesion }: { sesion: Sesion }) {
   const { token, usuario: { id } } = sesion;
@@ -172,9 +180,9 @@ function Reparto({ sesion }: { sesion: Sesion }) {
   const refrescarCola = useCallback(async () => { setCola(await pendientes(id)); }, [id]);
   const refrescarHora = useCallback(async () => {
     const inicio = performance.now();
-    const r = await api<Omit<Ancla, 'monotono'>>('movimientos/hora', token);
-    anclas.set(token, { ...r, monotono: (inicio + performance.now()) / 2 });
-  }, [token]);
+    const r = await api<AnclaServidor>('movimientos/hora', token);
+    relojDe(id).anclar(r, (inicio + performance.now()) / 2);
+  }, [id, token]);
   const obtenerDireccion = useCallback(async (codigo: string) => {
     guiasVistas.current.add(codigo);
     const dir = await api<Direccion>('movimientos/' + codigo + '/direccion', token);
@@ -237,6 +245,11 @@ function Reparto({ sesion }: { sesion: Sesion }) {
 
   useEffect(() => {
     activo.current = true;
+    const relojOffline = relojDe(id);
+    const guardarReloj = () => relojOffline.guardar();
+    const persistencia = setInterval(guardarReloj, 1000);
+    window.addEventListener('pagehide', guardarReloj);
+    document.addEventListener('visibilitychange', guardarReloj);
     const cambiarRed = () => {
       setEnLinea(navigator.onLine);
       if (!navigator.onLine) return;
@@ -255,12 +268,16 @@ function Reparto({ sesion }: { sesion: Sesion }) {
     cambiarRed();
     return () => {
       activo.current = false;
+      guardarReloj();
+      clearInterval(persistencia);
+      window.removeEventListener('pagehide', guardarReloj);
+      document.removeEventListener('visibilitychange', guardarReloj);
       clearInterval(reloj);
       window.removeEventListener('online', cambiarRed);
       window.removeEventListener('offline', cambiarRed);
       conexion?.removeEventListener('change', cambiarRed);
     };
-  }, [obtenerDireccion, refrescarCola, refrescarHora, sincronizar]);
+  }, [id, obtenerDireccion, refrescarCola, refrescarHora, sincronizar]);
 
   async function consultarDireccion() {
     const codigo = normalizar(guia);
@@ -281,11 +298,9 @@ function Reparto({ sesion }: { sesion: Sesion }) {
     setAviso('');
     try {
       const dir = direccion?.numeroGuia === codigo ? direccion : await direccionLocal(id, codigo);
-      const referencia = anclas.get(token);
       const mov: Escaneo = {
-        id: crypto.randomUUID(), numeroGuia: codigo, tipo, relojLocalMs: Date.now(),
-        revisionDireccion: dir?.revisionDireccion, ancla: referencia?.ancla,
-        transcurridoMs: referencia ? Math.max(0, performance.now() - referencia.monotono) : undefined,
+        id: crypto.randomUUID(), numeroGuia: codigo, tipo, ...relojDe(id).capturar(),
+        revisionDireccion: dir?.revisionDireccion,
         motivo: tipo === 'intento_fallido' ? String(datos.get('motivo')) : undefined,
         receptor: tipo === 'entregado' ? String(datos.get('receptor')) : undefined,
       };
@@ -348,7 +363,6 @@ function App() {
   }, [desbloqueado]);
 
   function entrar(nueva: Sesion) {
-    anclas.clear();
     setSesion(nueva);
     setAcceso(false);
     setDesbloqueado(false);
@@ -363,7 +377,6 @@ function App() {
       if (!(error instanceof ErrorApi && error.status === 401)) { setAviso(mensaje(error)); return; }
     }
     localStorage.removeItem('acme-sesion');
-    anclas.clear();
     setSesion(null);
     setDesbloqueado(false);
     setVista('rastreo');

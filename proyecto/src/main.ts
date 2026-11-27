@@ -10,7 +10,7 @@ import { Gateway, GatewayApi } from './distribuido/gateway';
 import { Bases, consumir, ciclo, escucharRevocaciones, iniciarCache, publicarOutbox, puerto } from './distribuido/infra';
 import { Movimientos, MovimientosApi } from './distribuido/movimientos';
 import { iniciarReintentos } from './distribuido/reintentos';
-import { proyectarRevocacion, revocarLocal, Sesiones, SesionesApi } from './distribuido/sesiones';
+import { proyectarRevocacion, revocarLocal, Sesiones, SesionesApi, sincronizarRevocaciones } from './distribuido/sesiones';
 
 @Controller()
 class Salud {
@@ -38,7 +38,12 @@ async function main() {
   if (!process.env.CLAVE_INTERNA || !process.env.JWT_SECRET) throw new Error('Configura las claves de ACME');
   iniciarCache();
   if (['gateway', 'consulta', 'movimientos'].includes(process.env.SERVICIO ?? '')) {
-    void escucharRevocaciones(revocarLocal);
+    await new Promise<void>(resolve => {
+      void escucharRevocaciones(revocarLocal, async () => {
+        await sincronizarRevocaciones();
+        resolve();
+      });
+    });
   }
   switch (process.env.SERVICIO) {
     case 'gateway': return iniciarApi(GatewayApi, Gateway, true);

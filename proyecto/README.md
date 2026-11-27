@@ -63,7 +63,16 @@ npm run test:integration
 npm run test:integration -- --fallas
 ```
 
-La verificación normal crea guías y un cliente desechables. `--fallas` detiene y restaura contenedores de este Compose para comprobar promoción del líder, pérdida de mayoría, aislamiento del shard, recuperación del outbox y respaldo en Redis. Ejecútalo en una instancia de demostración. Para apagar conservando los datos, usa `docker compose down`.
+La verificación normal crea guías y un cliente desechables. `--fallas` detiene y restaura contenedores de este Compose para comprobar promoción del líder, pérdida de mayoría, aislamiento del shard, recuperación del outbox y respaldo en Redis. También comprueba que un fallo posterior no invalide una entrega pendiente y que las API reconstruyan sus revocaciones tras reiniciar sin Redis. Ejecútalo en una instancia de demostración. Para apagar conservando los datos, usa `docker compose down`.
+
+Las reglas y la compilación se verifican con `npm test` y `npm run build:web`, después de instalar dependencias con `npm ci`. Para probar la PWA en Chromium real, con el sistema levantado:
+
+```sh
+npx playwright install chromium
+npm run test:pwa
+```
+
+La prueba del navegador crea dos guías nuevas. Comprueba la recarga offline, el PIN, la dirección local, la persistencia de la cola y del reloj, la entrega en lote al reconectar y la pérdida de respuestas: tres reintentos con jitter, espera de cambio de red e idempotencia. Se puede definir `ACME_CHROMIUM_PATH` para usar un ejecutable Chromium ya instalado. El service worker actualiza el HTML y sus bundles juntos para conservar la versión visitada al volver a abrir sin red.
 
 Para enviar peticiones al gateway de forma interactiva, importa las [colecciones de Postman](postman/README.md).
 
@@ -96,7 +105,9 @@ flowchart LR
 
 Nginx publica el único puerto y vuelve a resolver las réplicas del gateway mediante DNS de Compose. Cada gateway rota entre IP de Consulta y prueba otra réplica cuando una falla. El circuito mantiene las últimas 100 solicitudes por réplica, abre un minuto con al menos 50 fallas y prueba 5 % del tráfico al quedar semiabierto. Redis devuelve la vista disponible con un aviso de atraso. Las operaciones de detalle conservan la validación del token y del titular, también al usar el respaldo.
 
-Usuarios guarda cuentas y sesiones en tres PostgreSQL con replicación síncrona y Patroni en modo quórum. etcd, también de tres miembros, arbitra la elección del líder. El servicio consulta el líder, comprueba que tenga al menos una réplica síncrona y espera aplicación remota al confirmar escrituras. Login y registro devuelven 503 mientras falte mayoría. Los JWT de 12 horas se verifican localmente. Los eventos de logout y cambio de contraseña alimentan las listas locales y Redis. Movimientos también comprueba la sesión en Usuarios antes de una entrega o corrección. Si la respuesta no llega, guarda el evento pendiente y lo reconcilia posteriormente.
+Usuarios guarda cuentas y sesiones en tres PostgreSQL con replicación síncrona y Patroni en modo quórum. etcd, también de tres miembros, arbitra la elección del líder. El servicio consulta el líder, comprueba que tenga al menos una réplica síncrona y espera aplicación remota al confirmar escrituras. Login y registro devuelven 503 mientras falte mayoría. Los JWT de 12 horas se verifican localmente. Los eventos de logout y cambio de contraseña alimentan las listas locales y Redis. Antes de abrir su puerto, gateway, Consulta y Movimientos se suscriben a esos eventos y reconstruyen las revocaciones vigentes desde Usuarios; repiten la recuperación al reconectar con RabbitMQ. Un proceso recién iniciado espera a disponer de esa información. Los procesos ya preparados conservan su lista local y pueden validar tokens aunque caiga Redis o Usuarios.
+
+Movimientos también comprueba la sesión en Usuarios antes de una entrega o corrección. Si la respuesta no llega, guarda el evento pendiente y lo reconcilia posteriormente. Una entrega pendiente hace esperar los movimientos posteriores de esa guía: cuando se confirma, un fallo posterior no puede quitarle el estado terminal. Una corrección pendiente permite registrar salidas y fallos; al confirmarla se actualiza la programación con la nueva dirección.
 
 Movimientos calcula SHA-256 sobre la guía inmutable y usa el primer byte módulo cuatro. Cada partición tiene su propio PostgreSQL y volumen. El UUID es idempotente dentro de la partición a la que pertenece la guía. Se publica el outbox con confirmaciones de RabbitMQ. Las colas durables tienen confirmación manual, consumidor activo único y cola de fallidos. La versión por guía permite ignorar reentregas. Consulta guarda en MongoDB y proyecta a Redis con versiones y reparación si el caché estuvo caído. Reintentos guarda su plan y el comando para Movimientos en la misma actualización atómica de MongoDB.
 
@@ -108,7 +119,7 @@ Movimientos calcula SHA-256 sobre la guía inmutable y usa el primer byte módul
 | Regiones de Usuarios | Tres regiones simuladas. Se requiere el líder y al menos una réplica síncrona. |
 | Franjas | Un intento por día de visita. Los reintentos alternan entre 09:00–13:00 y 14:00–18:00 en Ciudad de México. El tercer día con intento fallido escala a sucursal. |
 | PIN | Cuatro dígitos al abrir Reparto y cada 10 minutos de uso desbloqueado. |
-| Cronómetro | El ancla firmada por el servidor usa `performance.now()` durante la sesión de la página. Los escaneos previos conservan el dato ya calculado en IndexedDB. Tras reiniciar offline, los nuevos escaneos conservan una marca de hora no verificable y usan la hora de recepción para el orden operativo. |
+| Cronómetro | El ancla firmada y el intervalo monótono medido se guardan por usuario cada segundo, al ocultar/cerrar la página y al escanear. Tras recargar offline se continúa desde ese intervalo y se marca la hora como sospechosa. El tiempo que el navegador estuvo cerrado es desconocido: se conserva una cota temporal, sin calcularla con el reloj del celular ni inventar una duración exacta. Los escaneos ya guardados en IndexedDB conservan sus tiempos originales. Sin ningún ancla previa se usa la recepción del servidor y se marca como sospechoso. |
 | Administración | La CLI registra el contacto y la decisión del proveedor. |
 | Entrega errónea | Una entrega a una revisión anterior se registra como errónea si la corrección precede a la entrega. El almacenista o administrador registra `recuperado` y el paquete vuelve al centro de distribución para salir de nuevo. |
 | Reloj sospechoso | Con más de dos minutos de diferencia, el movimiento conserva la marca en el historial de detalle para revisión operativa. |

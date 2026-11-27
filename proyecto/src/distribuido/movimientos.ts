@@ -3,7 +3,7 @@ import {
   NotFoundException, Param, Post, ServiceUnavailableException, UnauthorizedException,
 } from '@nestjs/common';
 import { Type as ValidarTipo } from 'class-transformer';
-import { IsArray, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { createHash, randomUUID } from 'node:crypto';
 import { EntityManager } from 'typeorm';
 import { CorregirDireccionDto, CrearEnvioDto, RegistrarCasoDto, RegistrarMovimientoDto } from '../movimientos/movimientos.dto';
@@ -19,6 +19,7 @@ class EscanearDto extends RegistrarMovimientoDto implements Escaneo {
   @IsOptional() @IsString() @MaxLength(1024) ancla?: string;
   @IsOptional() @IsNumber() @Min(0) transcurridoMs?: number;
   @IsOptional() @IsNumber() relojLocalMs?: number;
+  @IsOptional() @IsBoolean() relojIncierto?: boolean;
 }
 class LoteDto {
   @IsArray() @ValidateNested({ each: true }) @ValidarTipo(() => EscanearDto) escaneos!: EscanearDto[];
@@ -154,8 +155,11 @@ export class Movimientos {
       const firma = huella(actor, solicitud);
       const existente = await this.duplicado(tx, mov.id, firma);
       if (existente) return { movimiento: existente, duplicado: true, paquete };
-      this.validar(paquete, mov);
-      const [anterior] = sensible ? await tx.query('SELECT id FROM confirmaciones WHERE guia=$1 LIMIT 1', [mov.numeroGuia]) : [];
+      // Una entrega pendiente reserva el resultado de la visita. Un fallo posterior
+      // debe esperar su resolución, sin invalidar una entrega que sí sea legítima.
+      const [anterior] = await tx.query(`SELECT id FROM confirmaciones WHERE guia=$1
+        AND ($2::boolean OR operador->'datos'->>'tipo'='entregado') LIMIT 1`, [mov.numeroGuia, sensible]);
+      if (sensible || !anterior) this.validar(paquete, mov);
       if (confirmacion === 'pendiente' || anterior) {
         mov.confirmacion = 'pendiente';
         await this.nuevo(tx, fila, mov, firma);

@@ -168,7 +168,7 @@ async function topologia(canal: Channel) {
 
 export class MensajeInvalido extends Error {}
 
-export async function escucharRevocaciones(procesar: (evento: unknown) => void) {
+export async function escucharRevocaciones(procesar: (evento: unknown) => void, alConectar?: () => Promise<void>) {
   await ciclo('revocaciones locales', async () => {
     const conexion = await connect(process.env.RABBIT_URL!, { timeout: 2000 });
     conexion.on('error', () => undefined);
@@ -184,6 +184,9 @@ export async function escucharRevocaciones(procesar: (evento: unknown) => void) 
         try { procesar(JSON.parse(mensaje.content.toString())); }
         catch (error) { console.error('Revocación local:', (error as Error).message); }
       }, { noAck: true });
+      // Primero se suscribe: los eventos concurrentes con el snapshot también
+      // llegan a la lista local. Al reconectar recupera los emitidos durante el corte.
+      await alConectar?.();
       await cerrado;
     } finally { await conexion.close().catch(() => undefined); }
   });

@@ -155,6 +155,7 @@ if (process.argv.includes('--fallas')) {
   } finally { docker('start', lider); }
   const esperaUnico = guia();
   const esperaCorreccion = guia();
+  const falloEnEspera = id();
   await crear(esperaUnico);
   await crear(esperaCorreccion);
   await posicionar(esperaUnico);
@@ -168,6 +169,9 @@ if (process.argv.includes('--fallas')) {
     const pendiente = await escanear(esperaUnico, 'entregado', { receptor: 'Se confirma después' });
     assert.equal(pendiente.movimiento.confirmacion, 'pendiente');
     assert.equal((await direccion(esperaUnico)).estado, 'en_ruta');
+    const falloPosterior = await escanear(esperaUnico, 'intento_fallido', { id: falloEnEspera, motivo: 'Resultado concurrente' });
+    assert.equal(falloPosterior.movimiento.confirmacion, 'pendiente');
+    assert.equal((await direccion(esperaUnico)).estado, 'en_ruta');
     const cambios = await corregir(esperaCorreccion, { id: id(), direccion: 'Dirección pendiente 17' });
     assert.equal(cambios.movimiento.confirmacion, 'pendiente');
     await escanear(esperaCorreccion, 'salida_ruta');
@@ -176,12 +180,28 @@ if (process.argv.includes('--fallas')) {
   } finally { docker('start', ...detenidos); }
   await hasta(async () => assert.equal((await direccion(esperaUnico)).estado, 'entregado'), 85);
   await hasta(async () => {
+    const vista = await consulta(esperaUnico, cliente.token);
+    assert.equal(vista.estado, 'entregado');
+    assert.equal(vista.historial.find(m => m.id === falloEnEspera)?.confirmacion, 'rechazado');
+    assert.equal(vista.plan, null);
+  });
+  await hasta(async () => {
     const actual = await direccion(esperaCorreccion);
     assert.equal(actual.direccion, 'Dirección pendiente 17');
     assert.equal(actual.plan?.direccion, actual.direccion);
     assert.equal(actual.plan?.revisionDireccion, actual.revisionDireccion);
   });
   console.log('✓ Promoción con mayoría, confirmaciones pendientes y cambio de dirección del reintento');
+
+  const sesionRevocada = await login('repartidor');
+  await http('auth/logout', { token: sesionRevocada.token, datos: {} });
+  try {
+    docker('stop', 'redis');
+    docker('restart', 'gateway', 'consulta', 'movimientos');
+    await hasta(() => http('movimientos/hora', { token: sesionRevocada.token, espera: 401 }), 65);
+    await hasta(() => direccion(g));
+  } finally { docker('start', 'redis'); }
+  console.log('✓ Recuperación de revocaciones tras reiniciar las API sin Redis; tokens vigentes siguen funcionando');
 
   const caida = guia();
   let sano = guia();

@@ -23,11 +23,25 @@ export async function autenticar(autorizacion?: string, consultarRevocacion = tr
     datos = jwt.verify(autorizacion.slice(7), { algorithms: ['HS256'], issuer: 'acme-usuarios' });
     if (!datos.sub || !datos.sid || !roles.includes(datos.rol) || !Number.isFinite(datos.exp)) throw new Error();
   } catch { throw new UnauthorizedException('Token inválido o vencido'); }
+  if (consultarRevocacion && !revocacionesListas) {
+    throw new ServiceUnavailableException('Se están recuperando las revocaciones de sesión');
+  }
   if (consultarRevocacion && await estaRevocada(datos.sid)) throw new UnauthorizedException('Sesión terminada');
   return { id: datos.sub, sesionId: datos.sid, rol: datos.rol, exp: datos.exp };
 }
 
 const revocadas = new Map<string, number>();
+let revocacionesListas = false;
+
+export async function sincronizarRevocaciones() {
+  const respuesta = await interna('usuarios', '/interno/revocaciones', {}, 8000);
+  if (!respuesta.ok) throw new Error('No se pudo recuperar el registro de revocaciones');
+  const eventos: unknown = await respuesta.json();
+  if (!Array.isArray(eventos)) throw new Error('Registro de revocaciones inválido');
+  const validados = eventos.map(interpretarRevocacion);
+  for (const evento of validados) revocarLocal(evento);
+  revocacionesListas = true;
+}
 export async function estaRevocada(sesionId: string) {
   const local = revocadas.get(sesionId);
   if (local && local > Date.now()) return true;
@@ -96,7 +110,7 @@ export function horaEscaneo(escaneo: Escaneo, actor: Actor) {
     if (datos.sub !== actor.id || !Number.isFinite(calculado) || transcurridoMs! < 0 || calculado > ahora + 10000) throw new Error();
     return {
       registradoEn: new Date(Math.min(calculado, ahora)).toISOString(),
-      sospechoso: relojLocalMs === undefined || Math.abs(relojLocalMs - calculado) > 120000,
+      sospechoso: escaneo.relojIncierto === true || relojLocalMs === undefined || Math.abs(relojLocalMs - calculado) > 120000,
     };
   } catch {
     return { registradoEn: new Date(ahora).toISOString(), sospechoso: true };
@@ -188,6 +202,15 @@ export class Sesiones {
     });
   }
 
+  revocaciones() {
+    return this.operacion(async tx => {
+      const sesiones: { id: string; venceEn: Date }[] = await tx.query(
+        'SELECT id, "venceEn" FROM sesiones WHERE "revocadaEn" IS NOT NULL AND "venceEn">now()',
+      );
+      return sesiones.map(sesion => ({ id: sesion.id, clave: 'sesion.terminada', vence: sesion.venceEn.getTime() }));
+    });
+  }
+
   async existeCliente(id: string) {
     return this.operacion(async tx => {
       const [r] = await tx.query("SELECT id FROM usuarios WHERE id=$1 AND rol='cliente'", [id]);
@@ -257,5 +280,11 @@ export class SesionesApi {
   existe(@Param('id') id: string, @Headers('x-acme-interna') clave?: string) {
     comprobarInterna(clave);
     return this.sesiones.existeCliente(id);
+  }
+
+  @Get('interno/revocaciones')
+  revocaciones(@Headers('x-acme-interna') clave?: string) {
+    comprobarInterna(clave);
+    return this.sesiones.revocaciones();
   }
 }

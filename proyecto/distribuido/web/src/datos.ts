@@ -13,6 +13,7 @@ export interface Escaneo {
   ancla?: string;
   transcurridoMs?: number;
   relojLocalMs: number;
+  relojIncierto?: boolean;
 }
 export interface Pendiente { orden: number; usuario: string; escaneo: Escaneo; problema?: string }
 export interface Direccion { numeroGuia: string; direccion: string; revisionDireccion: number; estado: string;

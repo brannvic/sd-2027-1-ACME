@@ -46,6 +46,7 @@ export interface Escaneo {
   ancla?: string;
   transcurridoMs?: number;
   relojLocalMs?: number;
+  relojIncierto?: boolean;
 }
 export interface MovimientoDistribuido {
   id: string;
