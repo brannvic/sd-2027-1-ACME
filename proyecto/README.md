@@ -1,4 +1,4 @@
-# ACME Paquetería · 03-movimientos
+# ACME Paquetería · 04-consulta
 
 Esta es una etapa intermedia de la migración descrita en el [PRD](docs/PRD.md). La versión final y definitiva del proyecto es la rama **`distribuido`**.
 
@@ -6,11 +6,9 @@ Secuencia: `01-monolito` → `02-usuarios` → `03-movimientos` → `04-consulta
 
 ## Cambios de esta etapa
 
-Movimientos ya se ejecuta como servicio independiente y es el dueño de los cuatro shards PostgreSQL, el historial, las confirmaciones y el outbox. Usuarios permanece separado.
+Consulta y la actualización de su proyección se extraen del monolito. El gateway balancea el rastreo entre tres instancias de `consulta`; el proceso `proyeccion` consume los eventos y actualiza MongoDB y Redis. El circuit breaker del gateway conserva el respaldo directo en Redis.
 
-Consulta y Reintentos siguen dentro de un único proceso `monolito`, con su MongoDB. Ambos consumen los eventos de RabbitMQ dentro de ese proceso. El gateway envía el rastreo al monolito; todavía no existen servicios independientes `consulta`, `proyeccion` ni `reintentos`.
-
-La infraestructura común, los contratos, la PWA y la CLI se incorporan en esta etapa para poder probar los movimientos de principio a fin. Usuarios se adapta a la implementación definitiva con Patroni/etcd y JWT de 12 horas; esta decisión sustituye la implementación de la rama 02 y permite reutilizar las revocaciones y confirmaciones del sistema final.
+Usuarios y Movimientos mantienen la separación de la etapa 03. El proceso `monolito` conserva únicamente Reintentos, sus documentos en MongoDB y sus comandos persistidos hacia Movimientos. No tiene rutas públicas ni abre una API. Todavía no existe un proceso independiente llamado `reintentos`.
 
 ## Arquitectura
 
@@ -20,15 +18,19 @@ flowchart LR
   N --> G
   G[Gateway x3] --> U[Usuarios]
   G --> M[Movimientos]
-  G --> O[Monolito: Consulta y Reintentos]
+  G --> Q[Consulta x3]
+  G --> R[(Redis)]
   M --> S[(PostgreSQL x4)]
   U --> P[(PostgreSQL x3: Patroni y etcd)]
   M --> B[RabbitMQ]
   U --> B
-  B --> O
-  O --> D[(MongoDB del monolito)]
-  O --> R[(Redis)]
-  G --> R
+  B --> L[Proyección de Consulta]
+  L --> D[(MongoDB de Consulta)]
+  L --> R
+  Q --> D
+  Q --> R
+  B --> O[Monolito: Reintentos]
+  O --> I[(MongoDB del monolito)]
   O -->|Comandos persistidos| M
 ```
 
@@ -36,7 +38,8 @@ flowchart LR
 |---|---|---|
 | Usuarios | Cuentas, sesiones y revocaciones | PostgreSQL x3 con Patroni/etcd |
 | Movimientos | Paquetes, historial, confirmaciones y outbox | PostgreSQL x4 por hash de guía |
-| Monolito | Proyección de consulta, intentos y programación | MongoDB del monolito y Redis |
+| Consulta | Proyección y caché | MongoDB propio y Redis |
+| Monolito | Intentos y programación | MongoDB del monolito |
 
 Solo Nginx publica un puerto. RabbitMQ transporta eventos durables; Movimientos guarda el cambio y su evento en una transacción, y los consumidores procesan las reentregas de forma idempotente. Reintentos programa franjas alternadas durante tres días de visita, escala a sucursal y permite registrar la decisión del proveedor. Una entrega a una revisión anterior de dirección puede requerir recuperación.
 
@@ -49,7 +52,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Abre http://localhost:8083. El proyecto Compose, sus imágenes de aplicación y sus volúmenes tienen nombres propios de esta etapa para poder conservar la instalación definitiva. Si defines `PORT`, ajusta también `ACME_URL` al ejecutar la CLI y las pruebas.
+Abre http://localhost:8084. El proyecto Compose, sus imágenes de aplicación y sus volúmenes tienen nombres propios de esta etapa para poder conservar la instalación definitiva. Si defines `PORT`, ajusta también `ACME_URL` al ejecutar la CLI y las pruebas.
 
 Las cuentas de demostración son `cliente@acme.test`, `repartidor@acme.test`, `proveedor@acme.test`, `almacenista@acme.test` y `administrador@acme.test`. Su contraseña inicial es `AcmeDemo2026!`, o `DEMO_PASSWORD` si se configura antes de crearlas. El primer login espera a que Usuarios disponga de líder y réplica síncrona.
 
@@ -77,4 +80,4 @@ Cada etapa se demuestra con sus propios datos. Estas ramas reconstruyen la separ
 
 ## Siguiente etapa
 
-En `04-consulta`, Consulta y su proyección salen del monolito. Reintentos permanece en el proceso restante.
+En `05-reintentos`, el último módulo del monolito se extrae al servicio `reintentos`. Esa rama contiene el mismo código que `distribuido`, la versión final y definitiva.

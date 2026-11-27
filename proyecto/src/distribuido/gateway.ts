@@ -2,7 +2,7 @@ import {
   All, Controller, Get, Injectable, NotFoundException, Req, Res, ServiceUnavailableException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { leerCache, respuestaVista } from '../monolito/consulta';
+import { leerCache, respuestaVista } from './consulta';
 import { direccionesDe, puerto } from './infra';
 
 export class CircuitoConsulta {
@@ -62,7 +62,7 @@ export class Gateway {
   }
 
   private async consultar(req: Request) {
-    const ips = await direccionesDe('monolito');
+    const ips = await direccionesDe('consulta');
     if (!ips.length) throw new Error('DNS de Consulta sin direcciones');
     const inicio = this.turno++ % ips.length;
     for (let turno = 0; turno < ips.length; turno++) {

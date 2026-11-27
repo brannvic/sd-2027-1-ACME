@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { json } from 'express';
 import { MongoClient } from 'mongodb';
 import { ErroresBaseDatos } from './errores-base-datos';
-import { ConsultaApi, Consultas, proyectarConsulta } from './monolito/consulta';
+import { ConsultaApi, Consultas, proyectarConsulta } from './distribuido/consulta';
 import { Gateway, GatewayApi } from './distribuido/gateway';
 import { Bases, consumir, ciclo, escucharRevocaciones, iniciarCache, publicarOutbox, puerto } from './distribuido/infra';
 import { Movimientos, MovimientosApi } from './distribuido/movimientos';
@@ -38,7 +38,7 @@ async function iniciarApi(controlador: Type, servicio: Type, gateway = false) {
 async function main() {
   if (!process.env.CLAVE_INTERNA || !process.env.JWT_SECRET) throw new Error('Configura las claves de ACME');
   iniciarCache();
-  if (['gateway', 'monolito', 'movimientos'].includes(process.env.SERVICIO ?? '')) {
+  if (['gateway', 'consulta', 'movimientos'].includes(process.env.SERVICIO ?? '')) {
     await new Promise<void>(resolve => {
       void escucharRevocaciones(revocarLocal, async () => {
         await sincronizarRevocaciones();
@@ -53,12 +53,9 @@ async function main() {
   }
   switch (process.env.SERVICIO) {
     case 'gateway': return iniciarApi(GatewayApi, Gateway, true);
-    case 'monolito': {
-      // Consulta y Reintentos permanecen en el mismo proceso durante esta etapa.
-      void proyectarConsulta();
-      void iniciarReintentos();
-      return iniciarApi(ConsultaApi, Consultas);
-    }
+    case 'consulta': return iniciarApi(ConsultaApi, Consultas);
+    case 'proyeccion': return proyectarConsulta();
+    case 'monolito': return iniciarReintentos();
     case 'revocaciones': return consumir('revocaciones', proyectarRevocacion);
     case 'usuarios': {
       const app = await iniciarApi(SesionesApi, Sesiones);

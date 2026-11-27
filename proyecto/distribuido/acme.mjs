@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
 
-const base = (process.env.ACME_URL ?? 'http://localhost:8083').replace(/\/$/, '') + '/api/v1/';
+const base = (process.env.ACME_URL ?? 'http://localhost:8084').replace(/\/$/, '') + '/api/v1/';
 const [operacion, guia, ...args] = process.argv.slice(2);
 if (!operacion || operacion === 'ayuda') {
   console.log(`
-ACME_URL               URL del gateway (http://localhost:8083)
+ACME_URL               URL del gateway (http://localhost:8084)
 ACME_CORREO            Correo, si no se proporciona ACME_TOKEN
 ACME_CONTRASENA        Contraseña de la cuenta
 ACME_TOKEN             Token Bearer opcional

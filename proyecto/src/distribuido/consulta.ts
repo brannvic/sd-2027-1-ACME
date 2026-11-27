@@ -2,9 +2,9 @@ import {
   BadGatewayException, Controller, ForbiddenException, Get, Headers, Injectable, NotFoundException, Param,
 } from '@nestjs/common';
 import { Channel } from 'amqplib';
-import { MovimientoDistribuido, PaqueteDistribuido, eventoPaquete, publico } from '../distribuido/contrato';
-import { cache, consumir, ciclo, mongo, redisLimite } from '../distribuido/infra';
-import { autenticar } from '../distribuido/sesiones';
+import { MovimientoDistribuido, PaqueteDistribuido, eventoPaquete, publico } from './contrato';
+import { cache, consumir, ciclo, mongo, redisLimite } from './infra';
+import { autenticar } from './sesiones';
 
 export interface Vista {
   _id: string;

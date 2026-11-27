@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as dormir } from 'node:timers/promises';
 
-const origen = process.env.ACME_URL ?? 'http://localhost:8083';
+const origen = process.env.ACME_URL ?? 'http://localhost:8084';
 const contrasena = process.env.DEMO_PASSWORD ?? 'AcmeDemo2026!';
 const noEncontrada = 'NO-EXISTE-' + randomUUID().slice(0, 8).toUpperCase();
 const id = () => randomUUID();
@@ -197,11 +197,11 @@ if (process.argv.includes('--fallas')) {
   await http('auth/logout', { token: sesionRevocada.token, datos: {} });
   try {
     docker('stop', 'redis');
-    docker('restart', 'gateway', 'monolito', 'movimientos');
+    docker('restart', 'gateway', 'consulta', 'movimientos');
     await hasta(() => http('movimientos/hora', { token: sesionRevocada.token, espera: 401 }), 65);
     await hasta(() => direccion(g));
   } finally { docker('start', 'redis'); }
-  // Espera a que Nginx resuelva todas las copias del gateway.
+  // Espera a que Nginx vuelva a resolver todas las copias reiniciadas del gateway.
   await hasta(async () => {
     const respuestas = await Promise.all(Array.from({ length: 12 }, async () => {
       const r = await fetch(origen + '/health', { signal: AbortSignal.timeout(3000) });
@@ -237,13 +237,13 @@ if (process.argv.includes('--fallas')) {
   console.log('✓ Recuperación de eventos acumulados en outbox');
 
   try {
-    docker('stop', 'monolito');
+    docker('stop', 'consulta');
     const atrasado = await consulta(g);
     assert.equal(atrasado.desactualizado, true);
     await consulta(noEncontrada, undefined, 503);
     for (let i = 0; i < 12; i++) await Promise.all(Array.from({ length: 30 }, () => consulta(g)));
     const estados = await Promise.all(Array.from({ length: 12 }, async () => (await (await fetch(origen + '/health')).json()).consulta.estado));
     assert.ok(estados.every(estado => estado === 'abierto'), estados.join(','));
-  } finally { docker('start', 'monolito'); }
+  } finally { docker('start', 'consulta'); }
   console.log('✓ Pérdida de Consulta, circuit breaker abierto y respaldo en Redis');
 }
