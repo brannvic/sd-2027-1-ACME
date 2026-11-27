@@ -5,7 +5,7 @@ const contrasena = process.env.DEMO_PASSWORD ?? 'AcmeDemo2026!';
 const guia = `ACME-${randomUUID().slice(0, 8).toUpperCase()}`;
 
 async function pedir(ruta, metodo = 'GET', cuerpo, token, esperado = 200) {
-  const respuesta = await fetch(`${baseUrl}${/^\/(health|interno)/.test(ruta) ? '' : '/api/v1'}${ruta}`, {
+  const respuesta = await fetch(`${baseUrl}${ruta === '/health' ? '' : '/api/v1'}${ruta}`, {
     method: metodo,
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
@@ -19,8 +19,6 @@ async function pedir(ruta, metodo = 'GET', cuerpo, token, esperado = 200) {
 
 async function demostrarMonolito() {
   await pedir('/health');
-  const usuarios = await pedir('/health/usuarios');
-  console.log(`   Usuarios: réplicas ${JSON.stringify(usuarios.replicas)}, quórum ${usuarios.quorum}`);
   const sesiones = {};
   for (const rol of ['administrador', 'cliente', 'almacenista', 'repartidor']) {
     sesiones[rol] = await pedir('/auth/login', 'POST', { correo: `${rol}@acme.test`, contrasena });
@@ -49,17 +47,8 @@ async function demostrarMonolito() {
   if (publico.estado !== 'entregado' || JSON.stringify(publico).includes('Calle')) throw new Error('Estado o privacidad incorrectos');
   const detalle = await pedir(`/tracking/${guia}/detalle`, 'GET', undefined, tokenCliente);
   console.log(JSON.stringify(detalle, null, 2));
-  await pedir(`/interno/sesiones/${randomUUID()}`, 'GET', undefined, undefined, 404); // Nginx no publica rutas internas
   for (const sesion of Object.values(sesiones)) await pedir('/auth/logout', 'POST', {}, sesion.token);
-  // El logout lo confirma Usuarios por quórum; al monolito le llega por el evento sesion_terminada (RabbitMQ).
-  const inicio = Date.now();
-  let estado = 200;
-  while (estado !== 401 && Date.now() - inicio < 10_000) {
-    estado = (await fetch(`${baseUrl}/api/v1/tracking/${guia}/detalle`, { headers: { Authorization: `Bearer ${tokenCliente}` } })).status;
-    if (estado !== 401) await new Promise(resolver => setTimeout(resolver, 100));
-  }
-  if (estado !== 401) throw new Error('El monolito no recibió la revocación en 10 s (¿RabbitMQ está arriba?)');
-  console.log(`401 GET /tracking/${guia}/detalle  (revocación recibida por evento en ${Date.now() - inicio} ms)`);
+  await pedir(`/tracking/${guia}/detalle`, 'GET', undefined, tokenCliente, 401);
   console.log(`\nDemostración terminada. Guía persistida: ${guia}`);
   console.log('Los tres días de reintentos se verifican con el reloj controlado de npm run test:integration.');
 }

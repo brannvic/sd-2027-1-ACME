@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@layer base {
+  body { @apply bg-slate-100 text-slate-900 min-h-screen; font-family: Inter, system-ui, sans-serif; }
+  h1 { @apply font-bold tracking-tight text-3xl sm:text-4xl; }
+  h2 { @apply font-semibold text-xl; }
+  label { @apply grid gap-1.5 text-sm font-medium text-slate-700; }
+  input, select { @apply w-full rounded-lg border border-slate-400 bg-white px-3 py-2 text-base text-slate-900; }
+  button { @apply cursor-pointer rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-950 disabled:cursor-not-allowed disabled:opacity-50; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-blue-700; }
+}
+@layer components {
+  .panel { @apply grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7; }
+  .secundario { @apply border border-slate-300 bg-white text-slate-900 hover:bg-slate-100; }
+  .estado { @apply rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900; }
+  .aviso { @apply rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950; }
+}

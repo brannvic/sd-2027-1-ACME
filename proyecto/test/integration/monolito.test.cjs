@@ -1,66 +1,37 @@
 require('reflect-metadata');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { generateKeyPairSync, randomUUID, sign } = require('node:crypto');
-
-// El monolito ya no tiene cuentas: los tokens los firma Usuarios. Aquí la prueba hace de Usuarios:
-// firma tokens con su propia llave Ed25519 y reemplaza el cliente HTTP interno por uno en memoria.
-function firmar(datos, llavePrivada) {
-  const b64 = valor => Buffer.from(valor).toString('base64url');
-  const contenido = `${b64(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }))}.${b64(JSON.stringify(datos))}`;
-  return `${contenido}.${b64(sign(null, Buffer.from(contenido), llavePrivada))}`;
-}
+const { randomUUID } = require('node:crypto');
 
 test('recorrido HTTP con PostgreSQL real y transacciones', async t => {
   assert.match(process.env.DB_NAME ?? '', /^acme_test(?:_|$)/, 'Usa una base exclusiva cuyo nombre empiece por acme_test');
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-  process.env.JWT_PUBLIC_KEY = publicKey.export({ type: 'spki', format: 'pem' });
-  process.env.RECONCILIAR_CADA_MS = '0'; // la prueba llama al reconciliador a mano
+  process.env.JWT_SECRET = 'secreto-de-pruebas-acme-al-menos-32-caracteres';
   const { default: baseDatos } = require('../../dist/base-datos');
+  const { Usuario, Rol } = require('../../dist/usuarios/usuario.entity');
   const { Paquete, Movimiento } = require('../../dist/movimientos/paquete.entity');
   const { IntentoEntrega, ProgramacionReintento } = require('../../dist/reintentos/reintento.entity');
+  const { generarHashContrasena } = require('../../dist/usuarios/contrasenas');
   const { Reloj } = require('../../dist/reloj');
-  const { UsuariosCliente } = require('../../dist/autenticacion/usuarios.cliente');
-  const { ConsumidorSesiones } = require('../../dist/autenticacion/consumidor-sesiones');
-  const { ConfirmacionesService } = require('../../dist/movimientos/confirmaciones.service');
+  const { JwtService } = require('@nestjs/jwt');
   const { crearAplicacion } = require('../../dist/crear-aplicacion');
   await baseDatos.initialize();
   t.after(async () => { if (baseDatos.isInitialized) await baseDatos.destroy(); });
   await baseDatos.runMigrations();
-  await baseDatos.query('TRUNCATE programacion_reintentos, intentos_entrega, historial_movimientos, paquetes, sesiones_revocadas RESTART IDENTITY CASCADE');
+  await baseDatos.query('TRUNCATE programacion_reintentos, intentos_entrega, historial_movimientos, paquetes, sesiones, usuarios RESTART IDENTITY CASCADE');
+  const usuarios = {};
+  for (const rol of [...Object.values(Rol), 'otro_cliente']) {
+    usuarios[rol] = await baseDatos.getRepository(Usuario).save({
+      correo: `${rol}@acme.test`, nombre: `Prueba ${rol}`, rol: rol === 'otro_cliente' ? Rol.CLIENTE : rol,
+      contrasenaHash: generarHashContrasena('AcmeDemo2026!'),
+    });
+  }
   const app = await crearAplicacion();
   await app.listen(0, '127.0.0.1');
   t.after(() => app.close());
   const url = await app.getUrl();
   let instante = '2026-10-16T16:00:00Z';
   app.get(Reloj).ahora = () => new Date(instante);
-
-  // "Usuarios" en memoria: cuentas, sesiones revocadas allá y un interruptor para simular que no responde.
-  const usuarios = {};
   const tokens = {};
-  const sesionDe = {};
-  const revocadasEnUsuarios = new Set();
-  let usuariosCaido = false;
-  function emitirToken(rol, venceEn = Date.now() + 12 * 3600e3) {
-    const sid = randomUUID();
-    sesionDe[rol] = sid;
-    return firmar({ sub: usuarios[rol].id, sid, rol: usuarios[rol].rol, iat: 1, exp: Math.floor(venceEn / 1000) }, privateKey);
-  }
-  for (const rol of ['cliente', 'repartidor', 'almacenista', 'administrador', 'otro_cliente']) {
-    usuarios[rol] = { id: randomUUID(), rol: rol === 'otro_cliente' ? 'cliente' : rol };
-    tokens[rol] = emitirToken(rol);
-  }
-  const clienteUsuarios = app.get(UsuariosCliente);
-  clienteUsuarios.verificarSesion = async sid => usuariosCaido ? 'no_verificable' : revocadasEnUsuarios.has(sid) ? 'revocada' : 'activa';
-  clienteUsuarios.obtenerUsuario = async id => {
-    if (usuariosCaido) throw new (require('@nestjs/common').ServiceUnavailableException)('Usuarios no responde');
-    return Object.values(usuarios).find(u => u.id === id) ?? null;
-  };
-  const consumidor = app.get(ConsumidorSesiones);
-  const revocarPorEvento = rol => consumidor.procesar({
-    tipo: 'sesion_terminada', sesionId: sesionDe[rol], usuarioId: usuarios[rol].id, venceEn: new Date(Date.now() + 3600e3).toISOString(),
-  });
-
   async function pedir(ruta, metodo = 'GET', cuerpo, token, esperado = 200) {
     const respuesta = await fetch(`${url}${ruta.startsWith('/health') ? '' : '/api/v1'}${ruta}`, {
       method: metodo, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -82,25 +53,21 @@ test('recorrido HTTP con PostgreSQL real y transacciones', async t => {
     await escanear(guia, 'ingreso_centro_distribucion', { ubicacion: 'Centro de prueba' });
   }
 
-  await t.test('salud, tokens verificados localmente, permisos y validación', async () => {
+  await t.test('salud, login, permisos y validación', async () => {
     assert.equal((await pedir('/health')).estado, 'UP');
+    await pedir('/auth/login', 'POST', { correo: 'cliente@acme.test', contrasena: 'incorrecta' }, undefined, 401);
+    for (const rol of Object.keys(usuarios)) {
+      const sesion = await pedir('/auth/login', 'POST', { correo: `${rol}@acme.test`, contrasena: 'AcmeDemo2026!' });
+      tokens[rol] = sesion.token;
+      assert.equal(sesion.usuario.id, usuarios[rol].id);
+      assert.equal('contrasenaHash' in sesion.usuario, false);
+    }
     await pedir('/paquetes', 'POST', {}, undefined, 401);
     await pedir('/paquetes', 'POST', {}, tokens.cliente, 403);
     await pedir('/paquetes', 'POST', {}, tokens.administrador, 400);
     await pedir('/tracking/INEXISTENTE', 'GET', undefined, undefined, 404);
-    const vencido = firmar({ sub: usuarios.cliente.id, sid: randomUUID(), rol: 'cliente', iat: 1, exp: 10 }, privateKey);
+    const vencido = await app.get(JwtService).signAsync({ sub: usuarios.cliente.id, sid: randomUUID() }, { expiresIn: -1 });
     await pedir('/reintentos', 'GET', undefined, vencido, 401);
-    const ajeno = firmar({ sub: usuarios.administrador.id, sid: randomUUID(), rol: 'administrador', iat: 1, exp: 4e9 }, generateKeyPairSync('ed25519').privateKey);
-    await pedir('/reintentos', 'GET', undefined, ajeno, 401);
-    const [e, , f] = tokens.repartidor.split('.');
-    const alterado = `${e}.${Buffer.from(JSON.stringify({ sub: usuarios.repartidor.id, sid: sesionDe.repartidor, rol: 'administrador', iat: 1, exp: 4e9 })).toString('base64url')}.${f}`;
-    await pedir('/paquetes/X/caso', 'PATCH', {}, alterado, 401);
-    await pedir('/paquetes', 'POST', { numeroGuia: 'ACME-SIN-TITULAR', clienteId: usuarios.repartidor.id, destinatario: 'X', direccion: 'Y' }, tokens.administrador, 400);
-    usuariosCaido = true;
-    try {
-      await pedir('/paquetes', 'POST', { numeroGuia: 'ACME-SIN-USUARIOS', clienteId: usuarios.cliente.id, destinatario: 'X', direccion: 'Y' }, tokens.administrador, 503);
-      await pedir('/reintentos', 'GET', undefined, tokens.repartidor); // con Usuarios caído, el token de jornada sigue sirviendo
-    } finally { usuariosCaido = false; }
   });
 
   await t.test('privacidad, corrección idempotente y UUID incompatible', async () => {
@@ -222,95 +189,19 @@ test('recorrido HTTP con PostgreSQL real y transacciones', async t => {
     assert.equal(await baseDatos.getRepository(Movimiento).countBy({ numeroGuia: guia, tipo: 'entregado' }), 1);
   });
 
-  await t.test('Usuarios caído: "entregado" queda pendiente y no es terminal hasta confirmar la sesión', async () => {
-    const guia = 'ACME-PENDIENTE';
-    await crearPaquete(guia);
-    await llevarAlCentro(guia);
-    await escanear(guia, 'salida_ruta');
-    usuariosCaido = true;
-    const id = randomUUID();
-    const { movimiento } = await escanear(guia, 'entregado', { receptor: 'Vecina' }, 202, id);
-    assert.equal(movimiento.confirmacion, 'pendiente');
-    await escanear(guia, 'entregado', { receptor: 'Vecina' }, 200, id);
-    let publico = await pedir(`/tracking/${guia}`);
-    assert.equal(publico.estado, 'entrega_por_confirmar');
-    assert.equal(publico.historial.at(-1).confirmacion, 'pendiente');
-    await escanear(guia, 'intento_fallido', { motivo: 'X' }, 409);
-    assert.deepEqual(await app.get(ConfirmacionesService).reconciliar(), { confirmados: 0, rechazados: 0 });
-    usuariosCaido = false;
-    assert.deepEqual(await app.get(ConfirmacionesService).reconciliar(), { confirmados: 1, rechazados: 0 });
-    publico = await pedir(`/tracking/${guia}`);
-    assert.equal(publico.estado, 'entregado');
-    assert.equal(publico.historial.at(-1).confirmacion, 'confirmada');
+  await t.test('la demo pública ejecuta el recorrido completo sin alterar el reloj del servidor', async () => {
+    const { execFile } = require('node:child_process');
+    const { promisify } = require('node:util');
+    const resultado = await promisify(execFile)(process.execPath, ['scripts/demo.mjs'], {
+      env: { ...process.env, API_URL: url, DEMO_PASSWORD: 'AcmeDemo2026!' },
+    });
+    assert.match(resultado.stdout, /Demostración terminada/);
   });
 
-  await t.test('si la sesión resultó revocada, el "entregado" pendiente se rechaza y el paquete vuelve a ruta', async () => {
-    const guia = 'ACME-REVOCADO';
-    await crearPaquete(guia);
-    await llevarAlCentro(guia);
-    await escanear(guia, 'salida_ruta');
-    usuariosCaido = true;
-    await escanear(guia, 'entregado', { receptor: 'Desconocido' }, 202);
-    revocadasEnUsuarios.add(sesionDe.repartidor); // el celular se reportó robado mientras Usuarios no respondía
-    usuariosCaido = false;
-    assert.deepEqual(await app.get(ConfirmacionesService).reconciliar(), { confirmados: 0, rechazados: 1 });
-    const detalle = await pedir(`/tracking/${guia}/detalle`, 'GET', undefined, tokens.cliente);
-    assert.equal(detalle.estado, 'en_ruta');
-    assert.equal(detalle.historial.at(-1).confirmacion, 'rechazada');
-    assert.equal((await pedir(`/tracking/${guia}`)).historial.some(m => m.tipo === 'entregado'), false);
-    await escanear(guia, 'entregado', { receptor: 'Titular' }, 401); // revocación síncrona: 401 inmediato
-    revocadasEnUsuarios.delete(sesionDe.repartidor);
-    tokens.repartidor = emitirToken('repartidor'); // nueva sesión del repartidor legítimo
-    await escanear(guia, 'entregado', { receptor: 'Titular' }, 201);
-    assert.equal((await pedir(`/tracking/${guia}`)).estado, 'entregado');
-  });
-
-  await t.test('corrección de dirección pendiente: se aplica al confirmar, o se rechaza si ya salió a ruta', async () => {
-    await crearPaquete('ACME-DIR-OK');
-    await crearPaquete('ACME-DIR-TARDE');
-    usuariosCaido = true;
-    for (const guia of ['ACME-DIR-OK', 'ACME-DIR-TARDE']) {
-      await pedir(`/movimientos/${guia}/direccion`, 'PATCH', { id: randomUUID(), direccion: 'Nueva 789' }, tokens.cliente, 202);
-      assert.equal((await pedir(`/tracking/${guia}/detalle`, 'GET', undefined, tokens.cliente)).direccion, 'Dirección privada 123');
-    }
-    usuariosCaido = false;
-    await llevarAlCentro('ACME-DIR-TARDE');
-    await escanear('ACME-DIR-TARDE', 'salida_ruta');
-    assert.deepEqual(await app.get(ConfirmacionesService).reconciliar(), { confirmados: 1, rechazados: 1 });
-    assert.equal((await pedir('/tracking/ACME-DIR-OK/detalle', 'GET', undefined, tokens.cliente)).direccion, 'Nueva 789');
-    const tarde = await pedir('/tracking/ACME-DIR-TARDE/detalle', 'GET', undefined, tokens.cliente);
-    assert.equal(tarde.direccion, 'Dirección privada 123');
-    assert.match(tarde.historial.find(m => m.tipo === 'direccion_corregida').notaConfirmacion, /salió a ruta/);
-  });
-
-  await t.test('el evento sesion_terminada revoca el token localmente, una sola vez aunque llegue repetido', async () => {
-    await pedir('/reintentos', 'GET', undefined, tokens.repartidor);
-    await revocarPorEvento('repartidor');
-    await revocarPorEvento('repartidor');
+  await t.test('logout revoca el token de inmediato', async () => {
+    await pedir('/auth/logout', 'POST', {}, tokens.repartidor);
     await pedir('/reintentos', 'GET', undefined, tokens.repartidor, 401);
-    const [{ total }] = await baseDatos.query('SELECT count(*)::int AS total FROM sesiones_revocadas WHERE "sesionId" = $1', [sesionDe.repartidor]);
-    assert.equal(total, 1);
     await pedir('/tracking/ACME-ENTREGA');
-  });
-
-  await t.test('el consumidor real de RabbitMQ aplica la revocación publicada en acme.eventos', { skip: !process.env.RABBITMQ_URL && 'sin RABBITMQ_URL' }, async () => {
-    consumidor.iniciar();
-    assert.equal(await consumidor.ponerseAlDia(10000), true);
-    const amqp = require('amqplib');
-    const conexion = await amqp.connect(process.env.RABBITMQ_URL);
-    try {
-      const canal = await conexion.createConfirmChannel();
-      const evento = { tipo: 'sesion_terminada', sesionId: sesionDe.almacenista, usuarioId: usuarios.almacenista.id, venceEn: new Date(Date.now() + 3600e3).toISOString() };
-      canal.publish('acme.eventos', 'sesion.terminada', Buffer.from(JSON.stringify(evento)), { persistent: true, messageId: evento.sesionId });
-      await canal.waitForConfirms();
-    } finally { await conexion.close(); }
-    let estado = 0;
-    for (let i = 0; i < 50 && estado !== 401; i++) {
-      estado = (await fetch(`${url}/api/v1/reintentos`, { headers: { Authorization: `Bearer ${tokens.almacenista}` } })).status;
-      if (estado !== 401) await new Promise(r => setTimeout(r, 100));
-    }
-    assert.equal(estado, 401);
-    assert.equal((await pedir('/health')).mensajeria, 'UP');
   });
 
   await t.test('sin conexión a la base se responde 503 y no se exponen errores internos', async () => {

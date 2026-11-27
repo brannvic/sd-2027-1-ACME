@@ -1,10 +1,7 @@
 node_modules
+distribuido/web/dist
 dist
 .git
 .env
 coverage
 .cache
-usuarios
-postman
-claves-desarrollo
-nginx

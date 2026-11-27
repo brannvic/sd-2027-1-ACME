@@ -1,4 +1,4 @@
-import { Franja } from './reintento.entity';
+export type Franja = 'manana' | 'tarde';
 
 export function obtenerFechaYHoraLocal(instante: Date) {
   const partes = new Intl.DateTimeFormat('en-CA', {

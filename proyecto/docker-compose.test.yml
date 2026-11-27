@@ -1,16 +1,4 @@
-# Instancias exclusivas para pruebas; no tocan los volúmenes de docker-compose.yml.
-x-postgres-usuarios-test: &postgres-usuarios-test
-  image: postgres:17-alpine
-  environment:
-    POSTGRES_DB: usuarios_test
-    POSTGRES_USER: usuarios
-    POSTGRES_PASSWORD: usuarios_desarrollo
-  healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U usuarios -d usuarios_test"]
-    interval: 3s
-    timeout: 3s
-    retries: 10
-
+# Instancia exclusiva para pruebas; no modifica la base del monolito.
 services:
   db:
     image: postgres:17-alpine
@@ -25,25 +13,3 @@ services:
       interval: 3s
       timeout: 3s
       retries: 10
-  usuarios-db-1:
-    <<: *postgres-usuarios-test
-    ports: ["127.0.0.1:55441:5432"]
-  usuarios-db-2:
-    <<: *postgres-usuarios-test
-    ports: ["127.0.0.1:55442:5432"]
-  usuarios-db-3:
-    <<: *postgres-usuarios-test
-    ports: ["127.0.0.1:55443:5432"]
-  rabbitmq:
-    image: rabbitmq:4-alpine
-    ports:
-      - "127.0.0.1:55672:5672"
-    environment:
-      RABBITMQ_DEFAULT_USER: acme
-      RABBITMQ_DEFAULT_PASS: acme_desarrollo
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s

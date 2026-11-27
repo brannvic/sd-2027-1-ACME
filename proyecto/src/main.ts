@@ -1,15 +1,83 @@
 import 'reflect-metadata';
-import 'dotenv/config';
-import { ConsumidorSesiones } from './autenticacion/consumidor-sesiones';
-import { crearAplicacion } from './crear-aplicacion';
+import { Controller, Get, Module, Type, ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { resolve } from 'node:path';
+import { json } from 'express';
+import { MongoClient } from 'mongodb';
+import { ErroresBaseDatos } from './errores-base-datos';
+import { ConsultaApi, Consultas, proyectarConsulta } from './monolito/consulta';
+import { Gateway, GatewayApi } from './distribuido/gateway';
+import { Bases, consumir, ciclo, escucharRevocaciones, iniciarCache, publicarOutbox, puerto } from './distribuido/infra';
+import { Movimientos, MovimientosApi } from './distribuido/movimientos';
+import { iniciarReintentos } from './monolito/reintentos';
+import { proyectarRevocacion, revocarLocal, Sesiones, SesionesApi, sincronizarRevocaciones } from './distribuido/sesiones';
 
-async function iniciarServidor() {
-  const aplicacion = await crearAplicacion();
-  // Al recuperarse, primero se procesa la cola de sesiones revocadas y después se abre la API.
-  const sesiones = aplicacion.get(ConsumidorSesiones);
-  sesiones.iniciar();
-  await sesiones.ponerseAlDia(Number(process.env.ESPERA_COLA_MS ?? 5000));
-  await aplicacion.listen(Number(process.env.PORT ?? 8080), '0.0.0.0');
+@Controller()
+class Salud {
+  @Get('health') get() { return { servicio: process.env.SERVICIO, proceso: process.env.HOSTNAME }; }
 }
 
-iniciarServidor().catch(error => { console.error(error); process.exitCode = 1; });
+async function iniciarApi(controlador: Type, servicio: Type, gateway = false) {
+  @Module({ controllers: gateway ? [controlador] : [controlador, Salud], providers: [Bases, servicio] })
+  class Modulo {}
+  const app = await NestFactory.create<NestExpressApplication>(Modulo, { bodyParser: false });
+  app.use(json({ limit: '16mb' }));
+  app.enableShutdownHooks();
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalFilters(new ErroresBaseDatos());
+  if (gateway) app.useStaticAssets(resolve('web'), {
+    setHeaders: (res, ruta) => {
+      if (ruta.endsWith('sw.js') || ruta.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
+    },
+  });
+  await app.listen(puerto, '0.0.0.0');
+  return app;
+}
+
+async function main() {
+  if (!process.env.CLAVE_INTERNA || !process.env.JWT_SECRET) throw new Error('Configura las claves de ACME');
+  iniciarCache();
+  if (['gateway', 'monolito', 'movimientos'].includes(process.env.SERVICIO ?? '')) {
+    await new Promise<void>(resolve => {
+      void escucharRevocaciones(revocarLocal, async () => {
+        await sincronizarRevocaciones();
+        resolve();
+      });
+    });
+  }
+  if (process.env.SERVICIO === 'monolito') {
+    // Espera a MongoDB antes de crear los clientes del monolito restante.
+    const conexion = new MongoClient(process.env.MONGO_URL!, { serverSelectionTimeoutMS: 1000 });
+    try { await conexion.connect(); } finally { await conexion.close(); }
+  }
+  switch (process.env.SERVICIO) {
+    case 'gateway': return iniciarApi(GatewayApi, Gateway, true);
+    case 'monolito': {
+      // Consulta y Reintentos permanecen en el mismo proceso durante esta etapa.
+      void proyectarConsulta();
+      void iniciarReintentos();
+      return iniciarApi(ConsultaApi, Consultas);
+    }
+    case 'revocaciones': return consumir('revocaciones', proyectarRevocacion);
+    case 'usuarios': {
+      const app = await iniciarApi(SesionesApi, Sesiones);
+      const bases = app.get(Bases);
+      void publicarOutbox('outbox usuarios', () => bases.usuarios());
+      void app.get(Sesiones).inicializarDemo();
+      return;
+    }
+    case 'movimientos': {
+      const app = await iniciarApi(MovimientosApi, Movimientos);
+      const bases = app.get(Bases);
+      for (let indice = 0; indice < 4; indice++) {
+        void publicarOutbox('outbox shard ' + indice, () => bases.shard(indice));
+        void ciclo('confirmaciones shard ' + indice, () => app.get(Movimientos).reconciliar(indice));
+      }
+      return;
+    }
+    default: throw new Error('Servicio inválido');
+  }
+}
+
+void main().catch(error => { console.error(error); process.exit(1); });

@@ -1,150 +1,179 @@
-# 02-usuarios: Usuarios sale del monolito.
-#
-#   cliente ──► nginx:8080 ──┬─► usuarios ──► usuarios-db-1 / -2 / -3   (quórum W=2, R=2)
-#                            │      │
-#                            │      └─► rabbitmq (sesion_terminada) ──┐
-#                            └─► app (monolito) ◄─────────────────────┘
-#                                   └─► db (paquetes, movimientos, reintentos)
-#
-# Redes: cada base solo es alcanzable por el servicio que es su dueño.
-
-x-postgres-usuarios: &postgres-usuarios
+name: acme-03-movimientos
+x-app: &app
+  image: acme-03-movimientos:local
+  pull_policy: never
+  restart: unless-stopped
+  environment: &app-env
+    RABBIT_URL: amqp://acme:${RABBIT_PASSWORD:-acme_broker}@rabbit
+    REDIS_URL: redis://redis:6379
+    CLAVE_INTERNA: ${CLAVE_INTERNA:-acme-interna-demo-78fe00547abc}
+    JWT_SECRET: ${JWT_SECRET:-acme-jwt-demo-89ec9d4e1712}
+    DB_PASSWORD: ${DB_PASSWORD:-acme_desarrollo}
+    INTERNAL_PORT: 8080
+x-shard: &shard
   image: postgres:17-alpine
   restart: unless-stopped
   environment:
-    POSTGRES_DB: usuarios
-    POSTGRES_USER: ${USUARIOS_DB_USER:-usuarios}
-    POSTGRES_PASSWORD: ${USUARIOS_DB_PASSWORD:-usuarios_desarrollo}
-  healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-    interval: 5s
-    timeout: 3s
-    retries: 10
-  networks: [datos-usuarios]
-
+    POSTGRES_DB: acme
+    POSTGRES_USER: acme
+    POSTGRES_PASSWORD: ${DB_PASSWORD:-acme_desarrollo}
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.5.21
+  entrypoint: [etcd]
+  restart: unless-stopped
+  environment: &etcd-env
+    ETCD_DATA_DIR: /etcd
+    ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+    ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+    ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+    ETCD_INITIAL_CLUSTER_TOKEN: acme-usuarios
+x-usuarios-pg: &usuarios-pg
+  image: acme-03-patroni:local
+  pull_policy: never
+  restart: unless-stopped
+  environment: &usuarios-pg-env
+    PATRONI_ETCD3_HOSTS: etcd1:2379,etcd2:2379,etcd3:2379
+    PATRONI_SUPERUSER_PASSWORD: ${DB_PASSWORD:-acme_desarrollo}
+    PATRONI_REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-acme_replica}
 services:
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.28-alpine
     restart: unless-stopped
     ports:
-      - "${PORT:-8080}:80"
+      - "${PORT:-8083}:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      app: { condition: service_healthy }
-      usuarios: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health/nginx"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    networks: [borde]
-
-  usuarios:
-    build: ./usuarios
-    restart: unless-stopped
+      - ./distribuido/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  gateway:
+    <<: *app
+    build: .
+    deploy:
+      replicas: 3
     environment:
-      PORT: 3000
-      USUARIOS_DB_URLS: >-
-        postgres://${USUARIOS_DB_USER:-usuarios}:${USUARIOS_DB_PASSWORD:-usuarios_desarrollo}@usuarios-db-1:5432/usuarios,
-        postgres://${USUARIOS_DB_USER:-usuarios}:${USUARIOS_DB_PASSWORD:-usuarios_desarrollo}@usuarios-db-2:5432/usuarios,
-        postgres://${USUARIOS_DB_USER:-usuarios}:${USUARIOS_DB_PASSWORD:-usuarios_desarrollo}@usuarios-db-3:5432/usuarios
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-acme}:${RABBITMQ_PASSWORD:-acme_desarrollo}@rabbitmq:5672
-      JWT_PRIVATE_KEY_FILE: /run/claves/usuarios-ed25519.pem
+      <<: *app-env
+      SERVICIO: gateway
+  usuarios:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: usuarios
       DEMO_PASSWORD: ${DEMO_PASSWORD:-AcmeDemo2026!}
+  movimientos:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: movimientos
+  monolito:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: monolito
+      MONGO_URL: mongodb://mongo-monolito:27017/monolito
+  mongo-monolito:
+    image: mongo:8
+    restart: unless-stopped
     volumes:
-      - ./claves-desarrollo/usuarios-ed25519.pem:/run/claves/usuarios-ed25519.pem:ro
-    depends_on:
-      usuarios-db-1: { condition: service_healthy }
-      usuarios-db-2: { condition: service_healthy }
-      usuarios-db-3: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-    networks: [borde, datos-usuarios, mensajeria]
-
-  usuarios-db-1:
-    <<: *postgres-usuarios
-    volumes: [usuarios_datos_1:/var/lib/postgresql/data]
-  usuarios-db-2:
-    <<: *postgres-usuarios
-    volumes: [usuarios_datos_2:/var/lib/postgresql/data]
-  usuarios-db-3:
-    <<: *postgres-usuarios
-    volumes: [usuarios_datos_3:/var/lib/postgresql/data]
-
-  rabbitmq:
+      - mongo-monolito:/data/db
+  revocaciones:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: revocaciones
+  rabbit:
     image: rabbitmq:4-management-alpine
     restart: unless-stopped
-    hostname: rabbitmq # los datos de RabbitMQ dependen del nombre del nodo
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-acme}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-acme_desarrollo}
-    volumes: [rabbitmq_datos:/var/lib/rabbitmq]
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    networks: [mensajeria]
-
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME:-acme}
-      POSTGRES_USER: ${DB_USER:-acme}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-acme_desarrollo}
+      RABBITMQ_DEFAULT_USER: acme
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:-acme_broker}
     volumes:
-      - acme_datos:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks: [datos-monolito]
-
-  app:
-    build: .
+      - rabbit:/var/lib/rabbitmq
+  redis:
+    image: redis:8-alpine
     restart: unless-stopped
-    environment:
-      PORT: 8080
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-acme}
-      DB_USER: ${DB_USER:-acme}
-      DB_PASSWORD: ${DB_PASSWORD:-acme_desarrollo}
-      USUARIOS_URL: http://usuarios:3000
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-acme}:${RABBITMQ_PASSWORD:-acme_desarrollo}@rabbitmq:5672
-      JWT_PUBLIC_KEY_FILE: /run/claves/usuarios-ed25519.pub.pem
-      # Solo para `npm run demo` dentro del contenedor: entra por Nginx, como un cliente real.
-      API_URL: http://nginx
-      DEMO_PASSWORD: ${DEMO_PASSWORD:-AcmeDemo2026!}
+    command: [redis-server, --appendonly, "yes"]
     volumes:
-      - ./claves-desarrollo/usuarios-ed25519.pub.pem:/run/claves/usuarios-ed25519.pub.pem:ro
-    depends_on:
-      db: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-    networks: [borde, datos-monolito, mensajeria]
-
-networks:
-  borde:
-  datos-usuarios:
-  datos-monolito:
-  mensajeria:
-
+      - redis:/data
+  shard0:
+    <<: *shard
+    volumes:
+      - shard0:/var/lib/postgresql/data
+  shard1:
+    <<: *shard
+    volumes:
+      - shard1:/var/lib/postgresql/data
+  shard2:
+    <<: *shard
+    volumes:
+      - shard2:/var/lib/postgresql/data
+  shard3:
+    <<: *shard
+    volumes:
+      - shard3:/var/lib/postgresql/data
+  etcd1:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd1
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd1:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd1:2380
+    volumes:
+      - etcd1:/etcd
+  usuarios-pg1:
+    <<: *usuarios-pg
+    build: ./distribuido/patroni
+    environment:
+      <<: *usuarios-pg-env
+      PATRONI_NAME: usuarios-pg1
+      PATRONI_RESTAPI_CONNECT_ADDRESS: usuarios-pg1:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: usuarios-pg1:5432
+    volumes:
+      - usuarios-pg1:/var/lib/postgresql/data
+  etcd2:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd2
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd2:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd2:2380
+    volumes:
+      - etcd2:/etcd
+  usuarios-pg2:
+    <<: *usuarios-pg
+    environment:
+      <<: *usuarios-pg-env
+      PATRONI_NAME: usuarios-pg2
+      PATRONI_RESTAPI_CONNECT_ADDRESS: usuarios-pg2:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: usuarios-pg2:5432
+    volumes:
+      - usuarios-pg2:/var/lib/postgresql/data
+  etcd3:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd3
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd3:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd3:2380
+    volumes:
+      - etcd3:/etcd
+  usuarios-pg3:
+    <<: *usuarios-pg
+    environment:
+      <<: *usuarios-pg-env
+      PATRONI_NAME: usuarios-pg3
+      PATRONI_RESTAPI_CONNECT_ADDRESS: usuarios-pg3:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: usuarios-pg3:5432
+    volumes:
+      - usuarios-pg3:/var/lib/postgresql/data
 volumes:
-  acme_datos:
-  usuarios_datos_1:
-  usuarios_datos_2:
-  usuarios_datos_3:
-  rabbitmq_datos:
+  rabbit:
+  redis:
+  shard0:
+  shard1:
+  shard2:
+  shard3:
+  etcd1:
+  usuarios-pg1:
+  etcd2:
+  usuarios-pg2:
+  etcd3:
+  usuarios-pg3:
+  mongo-monolito:
