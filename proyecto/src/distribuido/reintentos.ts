@@ -1,7 +1,7 @@
 import { TipoMovimiento as M, EstadoPaquete as E } from '../movimientos/tipos';
 import { obtenerFechaSiguiente, obtenerFechaYHoraLocal } from '../reintentos/horarios';
-import { EventoPaquete, Plan, eventoPaquete } from '../distribuido/contrato';
-import { ciclo, consumir, interna, mongo } from '../distribuido/infra';
+import { EventoPaquete, Plan, eventoPaquete } from './contrato';
+import { ciclo, consumir, interna, mongo } from './infra';
 
 type Franja = Plan['franja'];
 type Programacion = Plan & { estado: 'pendiente' | 'consumido' | 'cancelado'; id: string };

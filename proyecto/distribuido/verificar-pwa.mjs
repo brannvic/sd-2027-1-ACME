@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as dormir } from 'node:timers/promises';
 import { chromium } from 'playwright';
 
-const origen = (process.env.ACME_URL ?? 'http://localhost:8084').replace(/\/$/, '');
+const origen = (process.env.ACME_URL ?? 'http://localhost:8080').replace(/\/$/, '');
 const contrasena = process.env.DEMO_PASSWORD ?? 'AcmeDemo2026!';
 async function http(ruta, token, datos) {
   const respuesta = await fetch(origen + '/api/v1/' + ruta, {

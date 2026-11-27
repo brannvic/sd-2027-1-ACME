@@ -16,7 +16,7 @@
 4. Abre **ACME - Sistema distribuido - Recorrido completo**. Envía las peticiones de arriba hacia abajo o usa **Run collection** con una iteración, todas las carpetas y un segundo de espera entre peticiones. Tracking y la programación se actualizan por eventos. Si una consulta todavía muestra el estado anterior, repítela.
 5. Revisa las pruebas de cada respuesta. Los errores intencionales también comprueban el código esperado.
 
-El entorno apunta a `http://localhost:8084`. Si cambiaste el puerto o la contraseña de las cuentas de demo, ajusta `baseUrl` y `contrasenaDemo`. `baseUrl` no debe incluir `/api/v1` ni terminar en `/`.
+El entorno apunta a `http://localhost:8080`. Si cambiaste el puerto o la contraseña de las cuentas de demo, ajusta `baseUrl` y `contrasenaDemo`. `baseUrl` no debe incluir `/api/v1` ni terminar en `/`.
 
 ## Colección principal
 

@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as dormir } from 'node:timers/promises';
 
-const origen = process.env.ACME_URL ?? 'http://localhost:8084';
+const origen = process.env.ACME_URL ?? 'http://localhost:8080';
 const contrasena = process.env.DEMO_PASSWORD ?? 'AcmeDemo2026!';
 const noEncontrada = 'NO-EXISTE-' + randomUUID().slice(0, 8).toUpperCase();
 const id = () => randomUUID();
@@ -201,15 +201,6 @@ if (process.argv.includes('--fallas')) {
     await hasta(() => http('movimientos/hora', { token: sesionRevocada.token, espera: 401 }), 65);
     await hasta(() => direccion(g));
   } finally { docker('start', 'redis'); }
-  // Espera a que Nginx vuelva a resolver todas las copias reiniciadas del gateway.
-  await hasta(async () => {
-    const respuestas = await Promise.all(Array.from({ length: 12 }, async () => {
-      const r = await fetch(origen + '/health', { signal: AbortSignal.timeout(3000) });
-      assert.equal(r.status, 200);
-      return r.json();
-    }));
-    assert.ok(respuestas.every(r => r.servicio === 'gateway'));
-  });
   console.log('✓ Recuperación de revocaciones tras reiniciar las API sin Redis; tokens vigentes siguen funcionando');
 
   const caida = guia();

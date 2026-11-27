@@ -4,13 +4,12 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { resolve } from 'node:path';
 import { json } from 'express';
-import { MongoClient } from 'mongodb';
 import { ErroresBaseDatos } from './errores-base-datos';
 import { ConsultaApi, Consultas, proyectarConsulta } from './distribuido/consulta';
 import { Gateway, GatewayApi } from './distribuido/gateway';
 import { Bases, consumir, ciclo, escucharRevocaciones, iniciarCache, publicarOutbox, puerto } from './distribuido/infra';
 import { Movimientos, MovimientosApi } from './distribuido/movimientos';
-import { iniciarReintentos } from './monolito/reintentos';
+import { iniciarReintentos } from './distribuido/reintentos';
 import { proyectarRevocacion, revocarLocal, Sesiones, SesionesApi, sincronizarRevocaciones } from './distribuido/sesiones';
 
 @Controller()
@@ -46,16 +45,11 @@ async function main() {
       });
     });
   }
-  if (process.env.SERVICIO === 'monolito') {
-    // Espera a MongoDB antes de crear los clientes del monolito restante.
-    const conexion = new MongoClient(process.env.MONGO_URL!, { serverSelectionTimeoutMS: 1000 });
-    try { await conexion.connect(); } finally { await conexion.close(); }
-  }
   switch (process.env.SERVICIO) {
     case 'gateway': return iniciarApi(GatewayApi, Gateway, true);
     case 'consulta': return iniciarApi(ConsultaApi, Consultas);
     case 'proyeccion': return proyectarConsulta();
-    case 'monolito': return iniciarReintentos();
+    case 'reintentos': return iniciarReintentos();
     case 'revocaciones': return consumir('revocaciones', proyectarRevocacion);
     case 'usuarios': {
       const app = await iniciarApi(SesionesApi, Sesiones);
