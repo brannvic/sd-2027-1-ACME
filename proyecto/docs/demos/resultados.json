@@ -1,0 +1,367 @@
+[
+  {
+    "nombre": "01-flujo-completo",
+    "resultados": [
+      {
+        "texto": "F3.1 Vista ligera muestra la línea de tiempo sin nombre ni dirección",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.3 El titular ve el detalle completo",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.4 Corrección aceptada antes de salir a ruta",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.5 El repartidor recibe la dirección corregida",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.3 La cola de la PWA se vacía: el servidor confirmó cada UUID",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1 El cliente ve \"Entregado\" y quién recibió",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.4 Corrección tras \"salida a ruta\" → 409",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.1 Respuesta pública solo trae estado e historial",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "02-errores-validacion",
+    "resultados": [
+      {
+        "texto": "F3.1 Guía inexistente → 404",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.3 Quien no es titular recibe 403 (web y API)",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.1 Sin token y con token falso → 401",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.6 Entregado sin receptor → 400",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.2 Segundo envío → 200 con duplicado:true",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.2 La línea de tiempo tiene una sola \"salida a ruta\"",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§4 \"Salida a ruta\" con otro UUID estando en reparto → 409",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 PIN incorrecto bloquea la PWA",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 Con el PIN correcto se desbloquea",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "03-offline-pwa",
+    "resultados": [
+      {
+        "texto": "F1.3 Sin red, la PWA muestra la dirección guardada en IndexedDB",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.3 Dos escaneos esperan en la cola local",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.3 La cola se vacía al reconectar",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.3 El cliente ve la entrega en su línea de tiempo",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.5 La entrega queda marcada \"Hora del dispositivo sin verificar\"",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.2 Reenvío del lote → todos duplicado:true",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "04-respuesta-perdida",
+    "resultados": [
+      {
+        "texto": "F1.4 Tras 3 reintentos espera a que cambie la red",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.4 Esperas crecientes ≈2/4/8 s",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.4 La cola queda vacía",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.4 Al final hay una sola \"salida a ruta\"",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "05-reintentos",
+    "resultados": [
+      {
+        "texto": "F2.1 Fallo en la mañana → reintento en la tarde del día siguiente",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F2.4 Evento reentregado → sigue existiendo un solo reintento programado",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F2.3 Un intento fallido nunca es terminal (estado intento_fallido con plan)",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F2.1 Fallo en la tarde → reintento en la mañana",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F2.5 Tercer día con fallo → \"En sucursal\", pendiente de contacto",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F2.6 El caso se cierra con la decisión del proveedor",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "06-caida-shard",
+    "resultados": [
+      {
+        "texto": "§2.1 Guía del shard caído → 503 temporal",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§2.1 Guía de otro shard → aceptada",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 Solo queda pendiente la guía del shard caído",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§2.3 El cliente sigue rastreando la guía del shard caído",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 La cola se vacía y el movimiento llega a la línea de tiempo",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "07-rabbit-caido",
+    "resultados": [
+      {
+        "texto": "§7 Escrituras aceptadas con el broker caído",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§4 El cliente sigue viendo \"Envío creado\"",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 Respuesta desde Redis marcada \"puede estar desactualizado\"",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "Límite: guía fuera de Redis → 503 durante la caída del broker",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§9 El outbox del shard tiene eventos sin publicar",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 Ningún evento se perdió: el cliente ve almacén y centro",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§9 Outbox vacío",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 La guía fría vuelve a consultarse al regresar el broker",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "08-consulta-breaker",
+    "resultados": [
+      {
+        "texto": "§7 Con una réplica caída el cliente no nota nada",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.2 Guía en caché → último estado conocido con aviso",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.2 Sin caché → 503",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 Breaker abierto en los 3 gateways; los clientes siguen recibiendo 200 desde Redis",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 Breaker cerrado de nuevo en los 3 gateways",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F3.2 El cliente vuelve a ver datos frescos, sin aviso",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "09-quorum-usuarios",
+    "resultados": [
+      {
+        "texto": "§7 Patroni promovió un nuevo líder con mayoría 2/3",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§4 Sin quórum el login devuelve 503 (también en la web)",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§4 \"Salida a ruta\" aceptada sin quórum",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.1 La PWA avisa: entrega pendiente de confirmación",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "F1.1 El paquete sigue \"en_ruta\" (no terminal)",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§4 La entrega pendiente queda confirmada",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§4 El cliente ve \"Entregado\" con quien recibió",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  },
+  {
+    "nombre": "10-replicas-gateway",
+    "resultados": [
+      {
+        "texto": "§7 Responden 3 instancias distintas",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 Tras ≤5 s, las 6 peticiones → 200 desde la copia viva",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 El cliente rastrea con un solo gateway",
+        "ok": true,
+        "detalle": ""
+      },
+      {
+        "texto": "§7 El repartidor registra con un solo gateway",
+        "ok": true,
+        "detalle": ""
+      }
+    ]
+  }
+]

@@ -1,0 +1,199 @@
+name: acme-distribuido
+x-app: &app
+  image: acme-distribuido:local
+  pull_policy: never
+  restart: unless-stopped
+  environment: &app-env
+    RABBIT_URL: amqp://acme:${RABBIT_PASSWORD:-acme_broker}@rabbit
+    REDIS_URL: redis://redis:6379
+    CLAVE_INTERNA: ${CLAVE_INTERNA:-acme-interna-demo-78fe00547abc}
+    JWT_SECRET: ${JWT_SECRET:-acme-jwt-demo-89ec9d4e1712}
+    DB_PASSWORD: ${DB_PASSWORD:-acme_desarrollo}
+    INTERNAL_PORT: 8080
+x-shard: &shard
+  image: postgres:17-alpine
+  restart: unless-stopped
+  environment:
+    POSTGRES_DB: acme
+    POSTGRES_USER: acme
+    POSTGRES_PASSWORD: ${DB_PASSWORD:-acme_desarrollo}
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.5.21
+  entrypoint: [etcd]
+  restart: unless-stopped
+  environment: &etcd-env
+    ETCD_DATA_DIR: /etcd
+    ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+    ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+    ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+    ETCD_INITIAL_CLUSTER_TOKEN: acme-usuarios
+x-usuarios-pg: &usuarios-pg
+  image: acme-patroni:local
+  pull_policy: never
+  restart: unless-stopped
+  environment: &usuarios-pg-env
+    PATRONI_ETCD3_HOSTS: etcd1:2379,etcd2:2379,etcd3:2379
+    PATRONI_SUPERUSER_PASSWORD: ${DB_PASSWORD:-acme_desarrollo}
+    PATRONI_REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-acme_replica}
+services:
+  nginx:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:80"
+    volumes:
+      - ./distribuido/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  gateway:
+    <<: *app
+    build: .
+    deploy:
+      replicas: 3
+    environment:
+      <<: *app-env
+      SERVICIO: gateway
+  usuarios:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: usuarios
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-AcmeDemo2026!}
+  movimientos:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: movimientos
+  consulta:
+    <<: *app
+    deploy:
+      replicas: 3
+    environment:
+      <<: *app-env
+      SERVICIO: consulta
+      MONGO_URL: mongodb://mongo-consulta:27017/consulta
+  proyeccion:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: proyeccion
+      MONGO_URL: mongodb://mongo-consulta:27017/consulta
+  reintentos:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: reintentos
+      MONGO_URL: mongodb://mongo-reintentos:27017/reintentos
+  revocaciones:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICIO: revocaciones
+  rabbit:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: acme
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:-acme_broker}
+    volumes:
+      - rabbit:/var/lib/rabbitmq
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes"]
+    volumes:
+      - redis:/data
+  mongo-consulta:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - mongo-consulta:/data/db
+  mongo-reintentos:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - mongo-reintentos:/data/db
+  shard0:
+    <<: *shard
+    volumes:
+      - shard0:/var/lib/postgresql/data
+  shard1:
+    <<: *shard
+    volumes:
+      - shard1:/var/lib/postgresql/data
+  shard2:
+    <<: *shard
+    volumes:
+      - shard2:/var/lib/postgresql/data
+  shard3:
+    <<: *shard
+    volumes:
+      - shard3:/var/lib/postgresql/data
+  etcd1:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd1
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd1:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd1:2380
+    volumes:
+      - etcd1:/etcd
+  usuarios-pg1:
+    <<: *usuarios-pg
+    build: ./distribuido/patroni
+    environment:
+      <<: *usuarios-pg-env
+      PATRONI_NAME: usuarios-pg1
+      PATRONI_RESTAPI_CONNECT_ADDRESS: usuarios-pg1:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: usuarios-pg1:5432
+    volumes:
+      - usuarios-pg1:/var/lib/postgresql/data
+  etcd2:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd2
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd2:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd2:2380
+    volumes:
+      - etcd2:/etcd
+  usuarios-pg2:
+    <<: *usuarios-pg
+    environment:
+      <<: *usuarios-pg-env
+      PATRONI_NAME: usuarios-pg2
+      PATRONI_RESTAPI_CONNECT_ADDRESS: usuarios-pg2:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: usuarios-pg2:5432
+    volumes:
+      - usuarios-pg2:/var/lib/postgresql/data
+  etcd3:
+    <<: *etcd
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd3
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd3:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd3:2380
+    volumes:
+      - etcd3:/etcd
+  usuarios-pg3:
+    <<: *usuarios-pg
+    environment:
+      <<: *usuarios-pg-env
+      PATRONI_NAME: usuarios-pg3
+      PATRONI_RESTAPI_CONNECT_ADDRESS: usuarios-pg3:8008
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: usuarios-pg3:5432
+    volumes:
+      - usuarios-pg3:/var/lib/postgresql/data
+volumes:
+  rabbit:
+  redis:
+  mongo-consulta:
+  mongo-reintentos:
+  shard0:
+  shard1:
+  shard2:
+  shard3:
+  etcd1:
+  usuarios-pg1:
+  etcd2:
+  usuarios-pg2:
+  etcd3:
+  usuarios-pg3:

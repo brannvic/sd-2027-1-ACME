@@ -1,0 +1,31 @@
+scope: acme-usuarios
+restapi:
+  listen: 0.0.0.0:8008
+bootstrap:
+  dcs:
+    ttl: 20
+    loop_wait: 4
+    retry_timeout: 5
+    synchronous_mode: quorum
+    synchronous_mode_strict: true
+    synchronous_node_count: 1
+    postgresql:
+      use_pg_rewind: true
+      parameters:
+        synchronous_commit: remote_apply
+        wal_log_hints: 'on'
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  pg_hba:
+    - host all all 0.0.0.0/0 scram-sha-256
+    - host replication replicador 0.0.0.0/0 scram-sha-256
+postgresql:
+  listen: 0.0.0.0:5432
+  bin_dir: /usr/lib/postgresql/17/bin
+  data_dir: /var/lib/postgresql/data/pgdata
+  authentication:
+    superuser:
+      username: postgres
+    replication:
+      username: replicador

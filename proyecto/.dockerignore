@@ -1,0 +1,7 @@
+node_modules
+distribuido/web/dist
+dist
+.git
+.env
+coverage
+.cache
