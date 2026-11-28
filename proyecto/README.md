@@ -76,6 +76,8 @@ La prueba del navegador crea dos guías nuevas. Comprueba la recarga offline, el
 
 Para enviar peticiones al gateway de forma interactiva, importa las [colecciones de Postman](postman/README.md).
 
+Las [pruebas grabadas en GIF](docs/demos/README.md) muestran el navegador, la PWA y las terminales lado a lado en diez escenarios, entre ellos el happy path, los errores de validación y las caídas de shard, broker, Consulta, quórum y gateway. Incluyen el veredicto sobre las ventajas del PRD. Se regeneran con `node scripts/grabar-demos.mjs`.
+
 ## Arquitectura
 
 ```mermaid
